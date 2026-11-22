@@ -9,6 +9,13 @@ import { mergeGeometries } from '../core/geom.js';
 
 const MAX_UNITS = 3;
 
+// A cruiser stands on its own tyres, like every other car in the city: the wheel centres sit at
+// the tyre radius and the sill rides a hand's width above the road. Without wheels the body is a
+// slab hovering a third of a metre over the asphalt, which is exactly what a viewer calls a
+// floating car; the wheels are what make the shape read as parked *on* the road.
+const CRUISER_TYRE = 0.36;
+const CRUISER_WHEELBASE = 1.46;
+
 function cruiserGeometry() {
   const parts = [];
   const add = (w, h, d, x, y, z, color) => {
@@ -16,14 +23,25 @@ function cruiserGeometry() {
     geometry.translate(x, y, z);
     parts.push({ geometry, color });
   };
-  add(1.94, 0.5, 4.3, 0, 0.62, 0, 0xffffff);
-  add(1.86, 0.18, 1.4, 0, 0.9, -1.5, 0x1c2430);
-  add(1.7, 0.54, 2.0, 0, 1.06, 0.12, 0x22303e);
-  add(1.9, 0.2, 0.8, 0, 0.96, 1.66, 0xf0f0f0);
-  add(1.02, 0.18, 0.34, 0, 1.34, -0.1, 0xf4f4f4);
-  add(1.98, 0.12, 0.18, 0, 0.44, -2.15, 0x8a8a8a);
-  add(1.98, 0.12, 0.18, 0, 0.44, 2.15, 0x8a8a8a);
+  // Sill at 0.44 m: a 0.36 m tyre touches the road and the body meets it, no daylight underneath.
+  add(1.94, 0.52, 4.3, 0, 0.7, 0, 0xffffff);
+  add(1.86, 0.18, 1.4, 0, 0.99, -1.5, 0x1c2430);
+  add(1.7, 0.54, 2.0, 0, 1.14, 0.12, 0x22303e);
+  add(1.9, 0.2, 0.8, 0, 1.04, 1.66, 0xf0f0f0);
+  add(1.02, 0.18, 0.34, 0, 1.42, -0.1, 0xf4f4f4);
+  // Bumpers, level with the sill rather than below it.
+  add(1.98, 0.14, 0.18, 0, 0.56, -2.15, 0x8a8a8a);
+  add(1.98, 0.14, 0.18, 0, 0.56, 2.15, 0x8a8a8a);
+  add(1.98, 0.26, 0.16, 0, 0.62, -2.26, 0x8a8a8a);
+  add(1.98, 0.26, 0.16, 0, 0.62, 2.26, 0x8a8a8a);
   return mergeGeometries(parts);
+}
+
+/** Four tyres on the corners of the wheelbase, so the cruiser rests on the road it parks on. */
+function cruiserWheelGeometry() {
+  const tyre = new THREE.CylinderGeometry(CRUISER_TYRE, CRUISER_TYRE, 0.24, 12);
+  tyre.rotateZ(Math.PI / 2);
+  return tyre;
 }
 
 function officerGeometry() {
@@ -79,6 +97,19 @@ export default class Police {
     this.cruisers.frustumCulled = false;
     this.cruisers.count = 0;
     this.group.add(this.cruisers);
+
+    // The four tyres the cruiser stands on, one instanced mesh of four per cruiser.
+    const wheel = cruiserWheelGeometry();
+    this.wheels = new THREE.InstancedMesh(
+      wheel,
+      new THREE.MeshStandardMaterial({ color: 0x141517, roughness: 0.94, metalness: 0.02 }),
+      MAX_UNITS * 4,
+    );
+    this.wheels.castShadow = true;
+    this.wheels.receiveShadow = true;
+    this.wheels.frustumCulled = false;
+    this.wheels.count = 0;
+    this.group.add(this.wheels);
 
     const glass = new THREE.BoxGeometry(1.56, 0.4, 1.9);
     glass.translate(0, 1.08, 0.1);
@@ -658,6 +689,7 @@ export default class Police {
   applyAll(dt) {
     let count = 0;
     let barCount = 0;
+    let wheelCount = 0;
     const barPositions = this.glowPoints.geometry.getAttribute('position');
     const strobe = Math.sin(this.time * 9.2) > 0;
 
@@ -670,24 +702,39 @@ export default class Police {
       this.cruisers.setMatrixAt(count, this.dummy.matrix);
       this.glass.setMatrixAt(count, this.dummy.matrix);
 
-      this.local.position.set(0, 1.44, -0.1);
+      // Tyres, on the corners of the wheelbase and at the tyre radius: the same contact a traffic
+      // car makes, so a parked cruiser is never a slab over the asphalt.
+      for (const axle of [-1, 1]) {
+        for (const side of [-1, 1]) {
+          this.local.position.set(side * 0.86, CRUISER_TYRE, axle * CRUISER_WHEELBASE);
+          this.local.rotation.set(0, 0, 0);
+          this.local.scale.setScalar(1);
+          this.local.updateMatrix();
+          this.matrix.multiplyMatrices(this.dummy.matrix, this.local.matrix);
+          this.wheels.setMatrixAt(wheelCount, this.matrix);
+          wheelCount += 1;
+        }
+      }
+
+      this.local.position.set(0, 1.52, -0.1);
+      this.local.scale.setScalar(1);
       this.local.rotation.set(0, 0, 0);
       this.local.updateMatrix();
       this.matrix.multiplyMatrices(this.dummy.matrix, this.local.matrix);
       this.bars.setMatrixAt(barCount, this.matrix);
       this.tint.set(strobe ? 0xff3a2c : 0x2c4a78);
       this.bars.setColorAt(barCount, this.tint);
-      barPositions.setXYZ(barCount, unit.x, this.dummy.position.y + 1.5, unit.z);
+      barPositions.setXYZ(barCount, unit.x, this.dummy.position.y + 1.58, unit.z);
       barCount += 1;
 
       if (this.strobeSecond !== false) {
-        this.local.position.set(0, 1.44, 0.9);
+        this.local.position.set(0, 1.52, 0.9);
         this.local.updateMatrix();
         this.matrix.multiplyMatrices(this.dummy.matrix, this.local.matrix);
         this.bars.setMatrixAt(barCount, this.matrix);
         this.tint.set(strobe ? 0x2c4a78 : 0xff3a2c);
         this.bars.setColorAt(barCount, this.tint);
-        barPositions.setXYZ(barCount, unit.x, this.dummy.position.y + 1.5, unit.z);
+        barPositions.setXYZ(barCount, unit.x, this.dummy.position.y + 1.58, unit.z);
         barCount += 1;
       }
 
@@ -696,8 +743,10 @@ export default class Police {
     }
     this.cruisers.count = count;
     this.glass.count = count;
+    this.wheels.count = wheelCount;
     this.bars.count = barCount;
     this.cruisers.instanceMatrix.needsUpdate = true;
+    this.wheels.instanceMatrix.needsUpdate = true;
     this.glass.instanceMatrix.needsUpdate = true;
     this.bars.instanceMatrix.needsUpdate = true;
     if (this.bars.instanceColor) this.bars.instanceColor.needsUpdate = true;

@@ -185,7 +185,9 @@ export default class Hud {
     const objective = state.objective ?? this.objective;
     const dx = state.position.x - objective.x;
     const dz = state.position.z - objective.z;
-    const meters = `${Math.max(0, Math.round(Math.hypot(dx, dz)))} M`;
+    // "225 M" alone was a bare, unlabelled number sitting next to the mission status; a viewer has
+    // no way to know it is the distance to the waypoint. Label it.
+    const meters = `${Math.max(0, Math.round(Math.hypot(dx, dz)))} M TO GO`;
     if (meters !== this.lastDistance) {
       this.distance.textContent = meters;
       this.lastDistance = meters;

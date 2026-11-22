@@ -118,7 +118,11 @@ export default class Missions {
       };
     }
     const distance = Math.round(this.distanceToObjective());
-    let status = mission.kind === 'shootout' ? `${this.remainingEnemies()} LEFT` : `${distance} M`;
+    // The HUD already prints the metres to the waypoint in its own badge. Repeating that number as
+    // the "status" put two identical distances side by side ("225 M  225 M"), which reads as a
+    // broken readout; the status slot says what the job *is doing*, and a shootout says how many
+    // are left, so the two badges never repeat one another.
+    let status = mission.kind === 'shootout' ? `${this.remainingEnemies()} LEFT` : 'ACTIVE';
     if (this.phase === 'failed') status = 'FAILED — PRESS R';
     if (this.phase === 'done') status = 'COMPLETE';
     return {

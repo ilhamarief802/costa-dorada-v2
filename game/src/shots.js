@@ -179,6 +179,32 @@ function coverCast(game, street) {
     [-2, 53, 'away', 0], [4, 52, 'towards', 0],
   ]);
   castPeople(game, street, { near: 6, far: 55, count: 14, crossing: 2 });
+  // The nearest three metres of pavement are the frame's foreground, and a band of bare flagstone
+  // across the bottom reads as a stage nobody is standing on. Two people walk out of that corner
+  // toward the lens, close enough to anchor the bottom of the frame (their feet land near y 500
+  // and 545 at this camera, which is the band that was empty), and one more crosses behind them.
+  // Positions measured off this camera by projection, not guessed: their feet land at y 580-690 and
+  // their heads at y 428-485, so they fill the band that was bare and never cross the coupe
+  // (x 399-684, y 367-414).
+  const foreground = game.pedestrians.cast(3);
+  const walkers = [
+    { x: 18.6, z: 151.0, heading: Math.PI * 0.92 },
+    { x: 20.2, z: 152.5, heading: Math.PI * 0.86 },
+    { x: 22.0, z: 151.0, heading: Math.PI * 1.04 },
+  ];
+  walkers.forEach((spot, i) => {
+    const person = foreground[i];
+    if (!person) return;
+    game.pedestrians.stagePoseDegrees(person, {
+      x: spot.x,
+      z: spot.z,
+      heading: spot.heading,
+      strideDeg: 21 + i * 3,
+      torsoDeg: 27 + i * 4,
+      armDeg: 25 + i * 3,
+    });
+    person.stagedIndex = 200 + i;
+  });
 }
 
 export function applyShot(game, requested) {
