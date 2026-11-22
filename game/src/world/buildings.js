@@ -23,6 +23,7 @@ export default class Buildings {
     this.buildMasses();
     this.buildRoofs();
     this.buildLedges();
+    this.buildContactStrips();
     this.buildWindows();
     this.buildShopfronts();
     this.buildAwnings();
@@ -30,6 +31,63 @@ export default class Buildings {
     this.buildRoofPlant();
     this.buildSigns();
     this.setNight(false);
+  }
+
+  /**
+   * Dark contact strips at every building base: a narrow band of grime and shadow where the wall
+   * meets the pavement. Without it a facade is a rectangle dropping onto the ground with a hard,
+   * impossibly clean edge, which is the single strongest "this is a card" cue in a low-poly city.
+   * The strip is drawn as four thin quads hugging the footprint, slightly proud of the wall so it
+   * cannot z-fight with it.
+   */
+  buildContactStrips() {
+    const geometry = new THREE.PlaneGeometry(1, 1);
+    geometry.rotateX(-Math.PI / 2);
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x2a231c,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+      toneMapped: true,
+    });
+    const placements = [];
+    const band = 0.55;
+    for (const lot of this.plan.lots) {
+      if (lot.height <= 0) continue;
+      const y = CITY.padHeight + 0.006;
+      // North and south faces.
+      for (const side of [-1, 1]) {
+        placements.push({
+          x: lot.x,
+          y,
+          z: lot.z + side * (lot.d / 2 + band / 2 - 0.02),
+          scale: [lot.w + band, 1, band],
+        });
+      }
+      // East and west faces.
+      for (const side of [-1, 1]) {
+        placements.push({
+          x: lot.x + side * (lot.w / 2 + band / 2 - 0.02),
+          y,
+          z: lot.z,
+          scale: [band, 1, lot.d + band],
+        });
+      }
+    }
+    if (!placements.length) return;
+    const mesh = new THREE.InstancedMesh(geometry, material, placements.length);
+    const dummy = new THREE.Object3D();
+    placements.forEach((placement, index) => {
+      dummy.position.set(placement.x, placement.y, placement.z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(placement.scale[0], 1, placement.scale[2]);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(index, dummy.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 1;
+    this.addNamed('contact-strips', mesh, false);
   }
 
   /** Add a part under the buildings group and remember what it is, so the floating-geometry

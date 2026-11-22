@@ -75,6 +75,7 @@ export default class Roads {
 
   buildMarkings() {
     const markings = { x: [], z: [] };
+    const centres = { x: [], z: [] };
     const verticals = this.plan.roads.filter((road) => road.axis === 'z').map((road) => road.x);
     const horizontals = this.plan.roads.filter((road) => road.axis === 'x').map((road) => road.z);
     const near = (value, list, margin) => list.some((point) => Math.abs(value - point) < margin);
@@ -85,10 +86,21 @@ export default class Roads {
           if (near(z, horizontals, 11)) continue;
           markings.z.push({ x: road.x, z, w: 0.22, d: 3.9 });
         }
+        // A solid centre line down the middle of the carriageway, broken only at junctions.
+        for (let z = road.z - road.d / 2; z < road.z + road.d / 2; z += 18) {
+          const end = Math.min(z + 16, road.z + road.d / 2);
+          if (near((z + end) / 2, horizontals, 12)) continue;
+          centres.z.push({ x: road.x, z: (z + end) / 2, w: 0.13, d: end - z });
+        }
       } else {
         for (let x = road.x - road.w / 2 + 5; x < road.x + road.w / 2 - 5; x += 9) {
           if (near(x, verticals, 11)) continue;
           markings.x.push({ x, z: road.z, w: 3.9, d: 0.22 });
+        }
+        for (let x = road.x - road.w / 2; x < road.x + road.w / 2; x += 18) {
+          const end = Math.min(x + 16, road.x + road.w / 2);
+          if (near((x + end) / 2, verticals, 12)) continue;
+          centres.x.push({ x: (x + end) / 2, z: road.z, w: end - x, d: 0.13 });
         }
       }
     }
@@ -108,6 +120,18 @@ export default class Roads {
     ];
     const dashes = makeInstances(geometry, material, placements, { receiveShadow: true });
     this.group.add(dashes);
+
+    // The centre line is a shade warmer and a shade dirtier than the lane dashes.
+    if (centres.z.length || centres.x.length) {
+      const centreMaterial = material.clone();
+      centreMaterial.color.set(0xd9c47a);
+      centreMaterial.emissive.set(0x241c10);
+      const centrePlacements = [
+        ...centres.z.map((m) => ({ x: m.x, y: 0.048, z: m.z, scale: [m.w, 1, m.d] })),
+        ...centres.x.map((m) => ({ x: m.x, y: 0.048, z: m.z, scale: [m.w, 1, m.d] })),
+      ];
+      this.group.add(makeInstances(geometry, centreMaterial, centrePlacements, { receiveShadow: true }));
+    }
 
     const stripes = [];
     for (const road of this.plan.roads.filter((r) => r.axis === 'z')) {

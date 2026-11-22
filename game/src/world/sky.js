@@ -164,6 +164,16 @@ export default class Sky {
     this.sunSprite.renderOrder = -9;
     scene.add(this.sunSprite);
 
+    // The sun disc itself: an unlit sphere on the sun bearing, rendered behind everything. The
+    // additive sprite on top of it is the halo, not the disc — a sprite alone has no edge, and a
+    // sun with no edge reads as a patch of fog.
+    this.sunDisc = new THREE.Mesh(
+      new THREE.SphereGeometry(13, 20, 14),
+      new THREE.MeshBasicMaterial({ color: 0xfff2d2, toneMapped: false, fog: false }),
+    );
+    this.sunDisc.renderOrder = -9;
+    scene.add(this.sunDisc);
+
     this.sun = new THREE.DirectionalLight(0xffb070, 2.2);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
@@ -343,12 +353,18 @@ export default class Sky {
     this.fill.color.set(palette.fill);
     this.fill.intensity = palette.fillIntensity;
 
-    this.sunDir.set(0.0, night ? 0.62 : 0.36, night ? -0.34 : 1.0).normalize();
+    // The sun stands over the boulevard's vanishing point, a little left of centre and above the
+    // roofline, so the frame has a disc in it and the warm rim on the hero comes from somewhere
+    // the viewer can actually see. The shadow light follows the same bearing: one sun, one
+    // shadow direction.
+    this.sunDir.set(-0.12, night ? 0.62 : 0.235, night ? -0.34 : -0.96).normalize();
     uniforms.uSunDir.value.copy(this.sunDir);
     this.sunSprite.material.color.set(palette.sunDisc);
     this.sunSprite.material.opacity = night ? 0.35 : 0.9;
     this.sunSprite.scale.setScalar(night ? 70 : 190);
     this.sunSprite.visible = true;
+    this.sunDisc.visible = !night;
+    this.sunDisc.material.color.set(palette.sunDisc);
 
     // The stars and the moon only exist after dark, and come up rather than snapping on.
     this.starMaterial.uniforms.uOpacity.value = night ? 0.95 : 0.0;
@@ -369,6 +385,7 @@ export default class Sky {
     this.starField.rotation.y = 0;
     this.moon.position.set(target.x + this.moonDir.x * 700, 0 + this.moonDir.y * 700, target.z + this.moonDir.z * 700);
     this.sunSprite.position.set(target.x, 0, target.z).addScaledVector(this.sunDir, 760);
+    this.sunDisc.position.copy(this.sunSprite.position);
     // The rim light sits opposite the sun, low, so it grazes the hero's far side.
     this.rim.position.set(target.x - this.sunDir.x * 120, 26, target.z - this.sunDir.z * 120 + 40);
     this.rim.target.position.copy(target);
