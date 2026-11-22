@@ -29,6 +29,17 @@ export function makeRng(seed) {
     int: (min, max) => Math.floor(min + next() * (max - min + 1)),
     chance: (p) => next() < p,
     pick: (list) => list[Math.floor(next() * list.length)],
+    /** Weighted pick: [[value, weight], ...]. */
+    weighted(entries) {
+      let total = 0;
+      for (const entry of entries) total += entry[1];
+      let ticket = next() * total;
+      for (const entry of entries) {
+        ticket -= entry[1];
+        if (ticket <= 0) return entry[0];
+      }
+      return entries[entries.length - 1][0];
+    },
     sign: () => (next() < 0.5 ? -1 : 1),
     shuffle(list) {
       const copy = list.slice();

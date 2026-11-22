@@ -87,11 +87,12 @@ const terrain = new Terrain(plan, assets);
 const blocks = new Blocks(plan, assets);
 const water = new Water();
 const roads = new Roads(plan, assets);
-const buildings = new Buildings(plan, assets);
+// Named `city` because `game.buildings` already means the module's public instance.
+const cityBuildings = new Buildings(plan, assets);
 const props = new Props(plan, assets);
 const palms = new Palms(plan, assets);
 const landmarks = new Landmarks(plan, assets);
-for (const group of [terrain.group, blocks.group, water.group, roads.group, buildings.group, props.group, palms.group, landmarks.group]) {
+for (const group of [terrain.group, blocks.group, water.group, roads.group, cityBuildings.group, props.group, palms.group, landmarks.group]) {
   scene.add(group);
 }
 
@@ -108,7 +109,7 @@ police.events = events;
 const missions = new Missions({ scene, plan, assets, police, pedestrians, combat, events });
 const activities = new Activities({ scene, plan, lanes, assets, traffic, blobs, events });
 const pickups = new Pickups({ scene, plan, blobs, assets });
-const weather = new Weather({ scene, renderer, sky, water, buildings, props, landmarks, traffic, vehicle });
+const weather = new Weather({ scene, renderer, sky, water, buildings: cityBuildings, props, landmarks, traffic, vehicle });
 const hud = new Hud(plan);
 const menus = new Menus(seed);
 const follow = new FollowCamera(camera, collision);
@@ -136,7 +137,7 @@ const game = {
   terrain,
   water,
   roads,
-  buildings,
+  buildings: cityBuildings,
   props,
   palms,
   landmarks,
@@ -708,12 +709,35 @@ menus.setHasSave(hasSave());
 hud.update(0, hudState());
 
 window.__PERF = perf;
+// Authoring aid: the bounds of every mesh under an object, so a part that pokes out is named.
+window.__PARTBOUNDS = (object) => {
+  const out = [];
+  object.traverse((child) => {
+    if (!child.isMesh) return;
+    const box = new THREE.Box3().setFromObject(child);
+    out.push({
+      name: child.name || child.geometry?.type || 'mesh',
+      min: box.min.toArray().map((v) => Number(v.toFixed(2))),
+      max: box.max.toArray().map((v) => Number(v.toFixed(2))),
+      tris: (child.geometry?.index ? child.geometry.index.count : child.geometry?.getAttribute('position')?.count ?? 0) / 3,
+    });
+  });
+  return out;
+};
 window.__GAME = {
   scene,
   camera,
   renderer,
   plan,
   lanes,
+  buildings: cityBuildings,
+  props,
+  palms,
+  landmarks,
+  sky,
+  water,
+  roads,
+  terrain,
   player,
   vehicle,
   traffic,

@@ -26,8 +26,97 @@ export default class Buildings {
     this.buildWindows();
     this.buildShopfronts();
     this.buildAwnings();
+    this.buildBalconies();
+    this.buildRoofPlant();
     this.buildSigns();
     this.setNight(false);
+  }
+
+  /**
+   * Balconies: a slab and a balustrade under a run of windows, at the same floor heights the
+   * ledges use. They give the facades a second plane to cast shadows onto, which is what stops a
+   * tall wall reading as a flat painted card.
+   */
+  buildBalconies() {
+    const slabGeometry = new THREE.BoxGeometry(1, 0.12, 0.9);
+    const railGeometry = new THREE.BoxGeometry(1, 0.36, 0.06);
+    const stoneMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.82, metalness: 0.02 });
+    const railMaterial = new THREE.MeshStandardMaterial({ color: 0x33302c, roughness: 0.5, metalness: 0.55 });
+    const slabs = [];
+    const rails = [];
+    for (const lot of this.plan.lots) {
+      if (lot.height <= 0 || lot.style === 'plaza' || lot.style === 'warehouse') continue;
+      const rng = this.plan.rng.fork(`balcony-${lot.seed}`);
+      const floors = Math.max(1, Math.floor((lot.height - 2) / 3.6));
+      for (let f = 1; f <= floors; f += 1) {
+        if (!rng.chance(0.3)) continue;
+        const y = CITY.padHeight + f * 3.6;
+        const side = rng.pick([0, 1, 2, 3]);
+        const along = rng.range(0.3, 0.7);
+        const width = Math.min(3.4, (side % 2 === 0 ? lot.w : lot.d) * 0.3);
+        if (side === 0 || side === 1) {
+          const z = lot.z + (side === 0 ? 1 : -1) * (lot.d / 2 + 0.5);
+          const x = lot.x + (along - 0.5) * lot.w * 0.7;
+          slabs.push({ x, y, z, scale: [width, 1, 1], color: lot.color });
+          rails.push({ x, y: y + 0.24, z: z + (side === 0 ? 0.42 : -0.42), scale: [width, 1, 1] });
+        } else {
+          const x = lot.x + (side === 2 ? 1 : -1) * (lot.w / 2 + 0.5);
+          const z = lot.z + (along - 0.5) * lot.d * 0.7;
+          slabs.push({ x, y, z, ry: Math.PI / 2, scale: [width, 1, 1], color: lot.color });
+          rails.push({ x: x + (side === 2 ? 0.42 : -0.42), y: y + 0.24, z, ry: Math.PI / 2, scale: [width, 1, 1] });
+        }
+      }
+    }
+    if (slabs.length) {
+      this.group.add(makeInstances(slabGeometry, stoneMaterial, slabs, { castShadow: true, receiveShadow: true }));
+      this.group.add(makeInstances(railGeometry, railMaterial, rails, { castShadow: true, receiveShadow: true }));
+    }
+  }
+
+  /**
+   * Roof plant: air-conditioning boxes, vent stacks, water tanks on legs, and a railing round the
+   * parapet of every taller roof. All of it is placed from the lot's own footprint and top, so
+   * nothing can hover beside a building instead of on it.
+   */
+  buildRoofPlant() {
+    const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
+    const tankGeometry = new THREE.CylinderGeometry(1, 1, 1.6, 10);
+    const ductMaterial = new THREE.MeshStandardMaterial({ color: 0x8e8a80, roughness: 0.8, metalness: 0.25 });
+    const tankMaterial = new THREE.MeshStandardMaterial({ color: 0x6b5a48, roughness: 0.86 });
+    const railMaterial = new THREE.MeshStandardMaterial({ color: 0x3c3830, roughness: 0.62, metalness: 0.4 });
+    const boxes = [];
+    const tanks = [];
+    const rails = [];
+    const rng = this.plan.rng.fork('roof-plant');
+    for (const lot of this.plan.lots) {
+      if (lot.height <= 0) continue;
+      const top = CITY.padHeight + lot.height + 0.32;
+      // Parapet railing, inset from the roof edge.
+      if (lot.height > 9) {
+        const inset = 0.6;
+        for (const side of [-1, 1]) {
+          rails.push({ x: lot.x, y: top + 0.04, z: lot.z + side * (lot.d / 2 - inset), scale: [lot.w - inset * 2, 1, 1] });
+          rails.push({ x: lot.x + side * (lot.w / 2 - inset), y: top + 0.04, z: lot.z, ry: Math.PI / 2, scale: [lot.d - inset * 2, 1, 1] });
+        }
+      }
+      // AC plant: two or three units on the roof, each with a fan grille.
+      const units = rng.int(1, 3);
+      for (let i = 0; i < units; i += 1) {
+        const x = lot.x + rng.range(-lot.w * 0.3, lot.w * 0.3);
+        const z = lot.z + rng.range(-lot.d * 0.3, lot.d * 0.3);
+        boxes.push({ x, y: top + 0.45, z, scale: [rng.range(1.0, 1.9), 0.9, rng.range(0.9, 1.6)], ry: rng.range(0, 3.1) });
+      }
+      if (lot.roof === 'tank') {
+        tanks.push({ x: lot.x + lot.w * 0.18, y: top + 1.9, z: lot.z - lot.d * 0.2, scale: [1.0, 1, 1.0] });
+      }
+      if (lot.style === 'tower') {
+        // Lift overrun and a mast: the silhouette of a tower block.
+        boxes.push({ x: lot.x, y: top + 0.9, z: lot.z, scale: [lot.w * 0.34, 1.8, lot.d * 0.34] });
+      }
+    }
+    if (boxes.length) this.group.add(makeInstances(boxGeometry, ductMaterial, boxes, { castShadow: true, receiveShadow: true }));
+    if (tanks.length) this.group.add(makeInstances(tankGeometry, tankMaterial, tanks, { castShadow: true, receiveShadow: true }));
+    if (rails.length) this.group.add(makeInstances(new THREE.BoxGeometry(1, 0.9, 0.07), railMaterial, rails, { castShadow: true, receiveShadow: false }));
   }
 
   buildMasses() {
@@ -114,11 +203,14 @@ export default class Buildings {
     const material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0 });
     const placements = [];
     for (const lot of this.plan.lots) {
-      if (lot.height <= 0 || lot.style === 'plaza' || lot.style === 'tower') continue;
-      const floors = Math.max(2, Math.floor(lot.height / 3.6));
+      if (lot.height <= 0 || lot.style === 'plaza') continue;
+      // Ledges stop below the parapet: a floor line that pokes out above its own roof is the
+      // single most common way a facade part ends up looking like it floats.
+      const floors = Math.max(1, Math.min(16, Math.floor((lot.height - 1.2) / 3.6)));
       const y0 = CITY.padHeight;
       for (let f = 1; f <= floors; f += 1) {
         const y = y0 + f * 3.6;
+        if (y > y0 + lot.height - 0.7) continue;
         const tint = new THREE.Color(lot.color).multiplyScalar(1.18).getHex();
         placements.push({ x: lot.x, y, z: lot.z + lot.d / 2 + 0.06, scale: [lot.w + 0.25, 0.17, 0.2], color: tint });
         placements.push({ x: lot.x, y, z: lot.z - lot.d / 2 - 0.06, scale: [lot.w + 0.25, 0.17, 0.2], color: tint });
@@ -140,9 +232,13 @@ export default class Buildings {
       const spacingY = tower ? 3.45 : 3.55;
       const y0 = CITY.padHeight + (tower ? 4.2 : 4.4);
 
-      const addFace = (count, width, x, z, ry, span) => {
+      // Which way a face runs is an axis question, not an angle comparison: the east face is
+      // +PI/2 and the west face is -PI/2, and testing for equality with +PI/2 slid every west
+      // face's columns sideways along X instead of along Z — windows floating in mid-air.
+      const addFace = (count, x, z, ry, span) => {
         if (count < 1) return;
         const step = span / count;
+        const alongZ = Math.abs(Math.abs(ry) - Math.PI / 2) < 1e-6;
         for (let f = 0; f < floors; f += 1) {
           const y = y0 + f * spacingY;
           if (y + windowH / 2 > CITY.padHeight + lot.height - 0.6) continue;
@@ -151,8 +247,8 @@ export default class Buildings {
             const offset = -span / 2 + step * (c + 0.5);
             const windowW = tower ? step * 0.82 : Math.min(1.35, step * 0.58);
             this.windowDescriptors.push({
-              x: x + (ry === Math.PI / 2 ? 0 : offset),
-              z: z + (ry === Math.PI / 2 ? offset : 0),
+              x: x + (alongZ ? 0 : offset),
+              z: z + (alongZ ? offset : 0),
               y,
               ry,
               w: windowW,
@@ -165,29 +261,87 @@ export default class Buildings {
         }
       };
 
-      addFace(lot.cols, lot.w, lot.x, lot.z + lot.d / 2 + 0.06, 0, lot.w * 0.86);
-      addFace(lot.cols, lot.w, lot.x, lot.z - lot.d / 2 - 0.06, Math.PI, lot.w * 0.86);
-      addFace(lot.depthCols, lot.d, lot.x + lot.w / 2 + 0.06, lot.z, Math.PI / 2, lot.d * 0.86);
-      addFace(lot.depthCols, lot.d, lot.x - lot.w / 2 - 0.06, lot.z, -Math.PI / 2, lot.d * 0.86);
+      addFace(lot.cols, lot.x, lot.z + lot.d / 2 + 0.06, 0, lot.w * 0.86);
+      addFace(lot.cols, lot.x, lot.z - lot.d / 2 - 0.06, Math.PI, lot.w * 0.86);
+      addFace(lot.depthCols, lot.x + lot.w / 2 + 0.06, lot.z, Math.PI / 2, lot.d * 0.86);
+      addFace(lot.depthCols, lot.x - lot.w / 2 - 0.06, lot.z, -Math.PI / 2, lot.d * 0.86);
     }
 
-    const geometry = new THREE.PlaneGeometry(1, 1);
+    // Each window is a recess, not a decal: a frame (the surround, in the facade's own stone), a
+    // glass pane inset behind it, a sill under it and a mullion splitting it. Four instanced
+    // meshes for the whole city, and at 480 px the grid reads as punched openings with depth
+    // rather than as flat blue rectangles.
+    const unit = new THREE.PlaneGeometry(1, 1);
     this.windowMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: true, side: THREE.FrontSide });
-    this.windows = new THREE.InstancedMesh(geometry, this.windowMaterial, Math.max(1, this.windowDescriptors.length));
+    this.windows = new THREE.InstancedMesh(unit, this.windowMaterial, Math.max(1, this.windowDescriptors.length));
     this.windows.count = this.windowDescriptors.length;
     this.windows.castShadow = false;
     this.windows.receiveShadow = false;
     this.windows.frustumCulled = false;
+
+    // Frame: a slightly larger quad behind the glass, tinted the facade's stone, so every window
+    // has a visible reveal on all four sides.
+    const frameMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.86, metalness: 0.02 });
+    this.windowFrames = new THREE.InstancedMesh(unit, frameMaterial, Math.max(1, this.windowDescriptors.length));
+    this.windowFrames.castShadow = false;
+    this.windowFrames.receiveShadow = true;
+    this.windowFrames.frustumCulled = false;
+
+    // Sill: a shallow ledge under each opening, catching the low sun.
+    const sillGeometry = new THREE.BoxGeometry(1, 1, 1);
+    this.windowSills = new THREE.InstancedMesh(sillGeometry, frameMaterial, Math.max(1, this.windowDescriptors.length));
+    this.windowSills.castShadow = true;
+    this.windowSills.receiveShadow = true;
+    this.windowSills.frustumCulled = false;
+
+    // Mullion: the vertical divider, in the same stone.
     const dummy = new THREE.Object3D();
+    const colour = new THREE.Color();
     this.windowDescriptors.forEach((win, index) => {
+      const nx = Math.sin(win.ry);
+      const nz = Math.cos(win.ry);
       dummy.position.set(win.x, win.y, win.z);
       dummy.rotation.set(0, win.ry, 0);
       dummy.scale.set(win.w, win.h, 1);
       dummy.updateMatrix();
       this.windows.setMatrixAt(index, dummy.matrix);
+
+      // Reveal: 16 cm of stone on every side, 8 cm behind the glass plane.
+      dummy.position.set(win.x - nx * 0.08, win.y, win.z - nz * 0.08);
+      dummy.scale.set(win.w + 0.16, win.h + 0.16, 1);
+      dummy.updateMatrix();
+      this.windowFrames.setMatrixAt(index, dummy.matrix);
+      frameMaterial.color.set(0xffffff);
+
+      // Sill: a 20 cm ledge proud of the wall.
+      dummy.position.set(win.x + nx * 0.05, win.y - win.h / 2 - 0.05, win.z + nz * 0.05);
+      dummy.rotation.set(0, win.ry, 0);
+      dummy.scale.set(win.w + 0.24, 0.09, 0.24);
+      dummy.updateMatrix();
+      this.windowSills.setMatrixAt(index, dummy.matrix);
     });
+
+    // Frame and sill colours follow the wall they are cut into.
+    this.windowDescriptors.forEach((win, index) => {
+      const lot = this.plan.lots.find(
+        (candidate) =>
+          Math.abs((win.x + win.z) - (candidate.x + candidate.z)) < 60 &&
+          Math.abs(win.x - candidate.x) <= candidate.w / 2 + 0.5 &&
+          Math.abs(win.z - candidate.z) <= candidate.d / 2 + 0.5,
+      );
+      colour.set(lot ? lot.color : 0xc9bda9).multiplyScalar(1.12);
+      this.windowFrames.setColorAt(index, colour);
+      this.windowSills.setColorAt(index, colour);
+    });
+    if (this.windowFrames.instanceColor) this.windowFrames.instanceColor.needsUpdate = true;
+    if (this.windowSills.instanceColor) this.windowSills.instanceColor.needsUpdate = true;
+
     this.windows.instanceMatrix.needsUpdate = true;
+    this.windowFrames.instanceMatrix.needsUpdate = true;
+    this.windowSills.instanceMatrix.needsUpdate = true;
+    this.group.add(this.windowFrames);
     this.group.add(this.windows);
+    this.group.add(this.windowSills);
   }
 
   buildShopfronts() {

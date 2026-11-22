@@ -1,9 +1,12 @@
-// The hero coupe: a low teal fastback built from merged primitives, arcade physics with grip
-// and drift, a sprung body, spinning and steering wheels, and headlights for the night.
+// The hero coupe: the shared lofted coupe shell, painted teal with a cream coachline, arcade
+// physics with grip and drift, a sprung body that rolls and pitches, spinning steering wheels and
+// real headlight beams for the night. Same paint, chrome and glass as the traffic, so the hero
+// car and the crowd cars read as one art direction.
 
-import { CAR, CITY } from '../core/config.js';
-import { clamp, damp, lerp, dampAngle } from '../core/math.js';
-import { mergeGeometries } from '../core/geom.js';
+import { CAR } from '../core/config.js';
+import { clamp, damp, lerp } from '../core/math.js';
+import { buildCar } from '../core/carkit.js';
+import { makeGlassMaterial, setGlassSky } from '../core/materials.js';
 
 export default class Vehicle {
   constructor(scene, plan, assets, collision) {
@@ -27,6 +30,7 @@ export default class Vehicle {
     this.driven = false;
     this.handbrake = false;
     this.night = false;
+    this.brakeFade = 0;
     this.build();
     scene.add(this.root);
     this.applyPose(1);
@@ -38,117 +42,114 @@ export default class Vehicle {
     this.bodyGroup = new THREE.Group();
     this.root.add(this.bodyGroup);
 
-    const teal = 0x238a95;
-    const cream = 0xf0e2c2;
-    const parts = [];
-    const add = (geometry, color, x, y, z) => {
-      geometry.translate(x, y, z);
-      parts.push({ geometry, color });
-    };
-    add(new THREE.BoxGeometry(1.88, 0.44, 4.2), teal, 0, 0.65, 0);
-    add(new THREE.BoxGeometry(1.78, 0.3, 1.25), teal, 0, 0.84, -1.5);
-    add(new THREE.BoxGeometry(1.58, 0.5, 2.0), 0x1a6d76, 0, 1.03, 0.16);
-    add(new THREE.BoxGeometry(1.5, 0.08, 1.6), teal, 0, 1.3, -0.12);
-    add(new THREE.BoxGeometry(1.9, 0.16, 0.2), 0xc9c4b6, 0, 0.44, -2.1);
-    add(new THREE.BoxGeometry(1.9, 0.16, 0.2), 0xc9c4b6, 0, 0.44, 2.1);
-    add(new THREE.BoxGeometry(1.52, 0.2, 0.08), 0x1d1f22, 0, 0.6, -2.11);
-    add(new THREE.BoxGeometry(1.86, 0.08, 0.16), 0x24282b, 0, 0.42, 0);
-    add(new THREE.BoxGeometry(0.15, 0.03, 4.5), cream, -0.2, 0.88, 0);
-    add(new THREE.BoxGeometry(0.15, 0.03, 4.5), cream, 0.2, 0.88, 0);
-    add(new THREE.BoxGeometry(0.14, 0.03, 1.8), cream, -0.2, 1.345, 0);
-    add(new THREE.BoxGeometry(0.14, 0.03, 1.8), cream, 0.2, 1.345, 0);
-    add(new THREE.BoxGeometry(1.46, 0.08, 1.0), 0x0d2630, 0, 1.13, -0.82);
-    add(new THREE.BoxGeometry(1.46, 0.08, 0.75), 0x0d2630, 0, 1.14, 1.05);
-    add(new THREE.BoxGeometry(0.07, 0.34, 1.35), 0x0d2630, -0.8, 1.08, 0.15);
-    add(new THREE.BoxGeometry(0.07, 0.34, 1.35), 0x0d2630, 0.8, 1.08, 0.15);
-    add(new THREE.BoxGeometry(0.18, 0.07, 0.24), 0x11575f, -0.93, 1.02, -0.55);
-    add(new THREE.BoxGeometry(0.18, 0.07, 0.24), 0x11575f, 0.93, 1.02, -0.55);
-    add(new THREE.BoxGeometry(0.38, 0.16, 0.06), 0xf6e6bd, 0, 0.55, 2.13);
+    const kit = buildCar('coupe');
+    this.spec = kit.spec;
+    // The rocker panel sits at the shell's lowest section, not a separately declared number.
+    this.spec.sill = Math.min(...this.spec.stations.map((s) => s.cy - s.down));
+    const teal = new THREE.Color(0x1e8894);
 
-    const bodyGeometry = mergeGeometries(parts);
-    const bodyMaterial = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.34,
-      metalness: 0.16,
-    });
-    this.body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    const paint = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.22, metalness: 0.55 });
+    this.body = new THREE.Mesh(kit.body, paint);
     this.body.castShadow = true;
     this.body.receiveShadow = true;
+    // Per-vertex tint: the shell's own shading times the paint colour.
+    this.paintBody(kit.body, teal);
     this.bodyGroup.add(this.body);
 
-    // Sloped glass over the hood and fastback.
-    const glassMaterial = new THREE.MeshStandardMaterial({ color: 0x14323c, roughness: 0.18, metalness: 0.45 });
-    const windshield = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.05, 1.05), glassMaterial);
-    windshield.position.set(0, 1.16, -0.88);
-    windshield.rotation.x = 0.38;
-    windshield.castShadow = true;
-    this.bodyGroup.add(windshield);
-    const rearGlass = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.05, 0.82), glassMaterial);
-    rearGlass.position.set(0, 1.17, 1.08);
-    rearGlass.rotation.x = -0.34;
-    this.bodyGroup.add(rearGlass);
+    const chrome = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.14, metalness: 0.96 });
+    const chromeMesh = new THREE.Mesh(kit.trim, chrome);
+    chromeMesh.castShadow = true;
+    this.bodyGroup.add(chromeMesh);
+
+    const dark = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.35 });
+    const darkMesh = new THREE.Mesh(kit.dark, dark);
+    darkMesh.castShadow = true;
+    this.bodyGroup.add(darkMesh);
+
+    this.glassMaterial = makeGlassMaterial({ tint: 0x0a1c24, tintPower: 1.1 });
+    const glass = new THREE.Mesh(kit.glass, this.glassMaterial);
+    this.bodyGroup.add(glass);
+
+    // A cream coachline down each flank and over the roof, so the coupe is recognisable at 480 px.
+    // The flank bands are lofted from the same station table, so they follow the taper of the
+    // body instead of poking out past the tail.
+    const stripes = [];
+    const band = coachline(this.spec.stations, this.spec.canopy.yBottom - 0.06, 0.028, 0.05, 0xf2e8cc);
+    stripes.push({ geometry: band });
+    const roofBand = new THREE.BoxGeometry(0.22, 0.018, 1.0);
+    roofBand.translate(0, this.spec.canopy.yTop + 0.004, (this.spec.canopy.roofZ0 + this.spec.canopy.roofZ1) / 2);
+    stripes.push({ geometry: roofBand, color: 0xf2e8cc });
+    this.stripeMesh = new THREE.Mesh(
+      mergeParts(stripes),
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.34, metalness: 0.2 }),
+    );
+    this.bodyGroup.add(this.stripeMesh);
 
     this.headlightMaterial = new THREE.MeshBasicMaterial({ color: 0xfff2cf, toneMapped: false });
-    for (const side of [-1, 1]) {
-      const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.15, 0.05), this.headlightMaterial);
-      lamp.position.set(side * 0.62, 0.73, -2.14);
-      this.bodyGroup.add(lamp);
-    }
-    this.tailMaterial = new THREE.MeshBasicMaterial({ color: 0xd93b2a, toneMapped: false });
-    for (const side of [-1, 1]) {
-      const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.12, 0.04), this.tailMaterial);
-      lamp.position.set(side * 0.64, 0.78, 2.14);
-      this.bodyGroup.add(lamp);
-    }
+    const head = new THREE.Mesh(kit.head, this.headlightMaterial);
+    this.bodyGroup.add(head);
+    this.tailMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+    const tail = new THREE.Mesh(kit.tail, this.tailMaterial);
+    this.bodyGroup.add(tail);
+    this.setTail(0);
 
+    // Wheels: tyre plus rim, spun from the physics state, front pair steers.
     this.wheels = [];
-    const tyreMaterial = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.92 });
-    const rimMaterial = new THREE.MeshStandardMaterial({ color: 0xb9b2a6, roughness: 0.35, metalness: 0.8 });
+    const tyreMaterial = new THREE.MeshStandardMaterial({ color: 0x131416, roughness: 0.95 });
+    const rimMaterial = new THREE.MeshStandardMaterial({ color: 0xc8c2b4, roughness: 0.24, metalness: 0.95 });
+    const hubMaterial = new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 0.5, metalness: 0.6 });
     for (const side of [-1, 1]) {
       for (const axle of [-1, 1]) {
         const group = new THREE.Group();
-        group.position.set(side * 0.88, 0.37, axle * 1.36);
-        const tyre = new THREE.Mesh(new THREE.CylinderGeometry(0.37, 0.37, 0.26, 16), tyreMaterial);
+        group.position.set(side * this.spec.width * 0.42, this.spec.wheelRadius, axle * this.spec.wheelBase);
+        const tyre = new THREE.Mesh(new THREE.CylinderGeometry(this.spec.wheelRadius, this.spec.wheelRadius, 0.23, 14), tyreMaterial);
         tyre.rotation.z = Math.PI / 2;
         tyre.castShadow = true;
         group.add(tyre);
-        const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.27, 12), rimMaterial);
+        const rim = new THREE.Mesh(new THREE.CylinderGeometry(this.spec.wheelRadius * 0.56, this.spec.wheelRadius * 0.56, 0.245, 12), rimMaterial);
         rim.rotation.z = Math.PI / 2;
         group.add(rim);
+        const hub = new THREE.Mesh(new THREE.CylinderGeometry(this.spec.wheelRadius * 0.2, this.spec.wheelRadius * 0.2, 0.26, 8), hubMaterial);
+        hub.rotation.z = Math.PI / 2;
+        group.add(hub);
         this.root.add(group);
         this.wheels.push({ group, tyre, front: axle < 0 });
       }
     }
 
+    // Headlight beams: narrow cones, so a beam is a pool ahead of the car and never a shaft
+    // hanging in mid-air where a car in front of it would sit.
     this.headlightBeams = [];
     this.glowSprites = [];
     for (const side of [-1, 1]) {
-      const light = new THREE.SpotLight(0xffe0b0, 0, 52, 0.5, 0.55, 1.4);
-      light.position.set(side * 0.62, 0.8, -2.0);
+      const light = new THREE.SpotLight(0xffe2b4, 0, 26, 0.42, 0.62, 1.6);
+      light.position.set(side * this.spec.width * 0.32, this.spec.lamps.headY, -1.95);
       const target = new THREE.Object3D();
-      target.position.set(side * 0.9, 0.1, -22);
+      target.position.set(side * this.spec.width * 0.42, 0.05, -9.5);
       this.root.add(target);
       light.target = target;
       this.root.add(light);
       this.headlightBeams.push(light);
+
       const glow = new THREE.Sprite(
         new THREE.SpriteMaterial({
           map: this.assets.glow(),
-          color: 0xffe9bd,
+          color: 0xffeccc,
           transparent: true,
           opacity: 0,
           depthWrite: false,
           blending: THREE.AdditiveBlending,
+          toneMapped: false,
         }),
       );
-      glow.position.set(side * 0.62, 0.73, -2.2);
-      glow.scale.setScalar(1.1);
+      glow.position.set(side * this.spec.width * 0.33, this.spec.lamps.headY, this.spec.lamps.headZ - 0.04);
+      glow.scale.set(3.0, 1.8, 1);
       this.bodyGroup.add(glow);
       this.glowSprites.push(glow);
     }
 
-    this.fillLight = new THREE.PointLight(0xffcf9a, 0, 13, 2);
-    this.fillLight.position.set(0, 1.6, 0);
+    this.fillLight = new THREE.PointLight(0xffcf9a, 0, 10, 2);
+    this.fillLight.position.set(0, 1.5, 0);
     this.root.add(this.fillLight);
 
     this.root.traverse((child) => {
@@ -156,12 +157,33 @@ export default class Vehicle {
     });
   }
 
+  /** Multiply the shell's baked shading by the paint colour so the paint keeps its form. */
+  paintBody(geometry, colour) {
+    const colors = geometry.getAttribute('color');
+    const array = colors.array;
+    for (let i = 0; i < colors.count; i += 1) {
+      const shade = array[i * 3];
+      array[i * 3] = shade * colour.r;
+      array[i * 3 + 1] = shade * colour.g;
+      array[i * 3 + 2] = shade * colour.b;
+    }
+    colors.needsUpdate = true;
+  }
+
+  setTail(level) {
+    this.tailMaterial.color.setRGB(level, level * 0.1, level * 0.05);
+  }
+
   setNight(night) {
     this.night = night;
-    for (const light of this.headlightBeams) light.intensity = night ? 220 : 0;
-    if (this.fillLight) this.fillLight.intensity = night ? 26 : 0;
-    for (const glow of this.glowSprites) glow.material.opacity = night ? 0.75 : 0.08;
-    this.headlightMaterial.color.set(night ? 0xfff4d6 : 0xf2e6c8);
+    for (const light of this.headlightBeams) light.intensity = night ? 15 : 0;
+    if (this.fillLight) this.fillLight.intensity = night ? 9 : 0;
+    for (const glow of this.glowSprites) glow.material.opacity = night ? 0.78 : 0.18;
+    this.headlightMaterial.color.set(night ? 0xfff6df : 0xf6ead0);
+  }
+
+  setSky(skyInfo) {
+    setGlassSky(skyInfo);
   }
 
   reset(x, z, heading) {
@@ -255,7 +277,8 @@ export default class Vehicle {
     this.suspension = clamp(this.suspension, -0.09, 0.09);
     this.roll = damp(this.roll, clamp(-vLateral * 0.012 - this.steer * Math.min(1, Math.abs(vForward) / 8) * 0.045, -0.09, 0.09), 7, dt);
     this.pitch = damp(this.pitch, clamp(accel * 0.0018, -0.05, 0.05), 6, dt);
-    this.wheelSpin += (vForward * dt) / 0.37;
+    this.wheelSpin += (vForward * dt) / this.spec.wheelRadius;
+    this.brakeFade = throttle < 0 ? 1 : Math.max(0, this.brakeFade - dt * 3.2);
 
     this.animate(dt);
     this.applyPose(1);
@@ -284,8 +307,8 @@ export default class Vehicle {
     let height = -Infinity;
     for (const side of [-1, 1]) {
       for (const axle of [-1, 1]) {
-        const x = this.position.x + Math.cos(this.heading) * side * 0.88 - Math.sin(this.heading) * axle * 1.36;
-        const z = this.position.z - Math.sin(this.heading) * side * 0.88 - Math.cos(this.heading) * axle * 1.36;
+        const x = this.position.x + Math.cos(this.heading) * side * this.spec.width * 0.48 - Math.sin(this.heading) * axle * this.spec.wheelBase;
+        const z = this.position.z - Math.sin(this.heading) * side * this.spec.width * 0.48 - Math.cos(this.heading) * axle * this.spec.wheelBase;
         height = Math.max(height, this.plan.groundHeight(x, z));
       }
     }
@@ -300,7 +323,8 @@ export default class Vehicle {
       wheel.tyre.rotation.x = this.wheelSpin;
       wheel.group.rotation.y = wheel.front ? this.steer * 0.9 : 0;
     }
-    this.tailMaterial.color.set(this.forwardSpeed < -0.2 || (this.handbrake && this.forwardSpeed > 1) ? 0xff5533 : 0xb82c20);
+    const braking = this.forwardSpeed < -0.2 || this.handbrake || this.brakeFade > 0.05;
+    this.setTail(braking ? 1 : 0.3);
   }
 
   applyPose(alpha) {
@@ -309,7 +333,7 @@ export default class Vehicle {
       lerp(this.prev.y, this.position.y, alpha),
       lerp(this.prev.z, this.position.z, alpha),
     );
-    let delta = ((this.heading - this.prevHeading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    const delta = ((this.heading - this.prevHeading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     this.root.rotation.y = this.prevHeading + delta * alpha;
   }
 
@@ -321,7 +345,6 @@ export default class Vehicle {
     return Math.abs(this.forwardSpeed) * 3.6;
   }
 
-  /** Snap every moving part to rest for a captured frame. */
   poseParked(x, z, heading) {
     this.reset(x, z, heading);
     this.suspension = 0;
@@ -330,7 +353,64 @@ export default class Vehicle {
     this.pitch = 0;
     this.bodyGroup.position.y = 0.02;
     this.bodyGroup.rotation.set(0, 0, 0);
-    this.tailMaterial.color.set(0x9c2a1e);
+    this.setTail(0.3);
     this.applyPose(1);
   }
+}
+
+/** Local merge for the coachline strips, which carry per-part colours only. */
+function coachline(stations, y, height, thickness, color) {
+  const positions = [];
+  const colors = [];
+  const tint = new THREE.Color(color);
+  const quad = (a, b, c, d) => {
+    positions.push(...a, ...b, ...c, ...a, ...c, ...d);
+    for (let i = 0; i < 6; i += 1) colors.push(tint.r, tint.g, tint.b);
+  };
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < stations.length - 1; i += 1) {
+      const a = stations[i];
+      const b = stations[i + 1];
+      const xa = side * (a.w - 0.012);
+      const xb = side * (b.w - 0.012);
+      quad([xa, y, a.z], [xb, y, b.z], [xb, y + height, b.z], [xa, y + height, a.z]);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function mergeParts(parts) {
+  let total = 0;
+  const prepared = [];
+  for (const part of parts) {
+    const source = part.geometry.index ? part.geometry.toNonIndexed() : part.geometry;
+    prepared.push({ source, count: source.getAttribute('position').count, color: part.color });
+    total += prepared[prepared.length - 1].count;
+  }
+  const position = new Float32Array(total * 3);
+  const normal = new Float32Array(total * 3);
+  const color = new Float32Array(total * 3);
+  let offset = 0;
+  for (const { source, count, color: tint } of prepared) {
+    position.set(source.getAttribute('position').array, offset * 3);
+    const nrm = source.getAttribute('normal');
+    if (nrm) normal.set(nrm.array, offset * 3);
+    const c = new THREE.Color(tint ?? 0xffffff);
+    for (let i = 0; i < count; i += 1) {
+      color[(offset + i) * 3] = c.r;
+      color[(offset + i) * 3 + 1] = c.g;
+      color[(offset + i) * 3 + 2] = c.b;
+    }
+    offset += count;
+  }
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.BufferAttribute(position, 3));
+  merged.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
+  merged.setAttribute('color', new THREE.BufferAttribute(color, 3));
+  merged.computeBoundingSphere();
+  return merged;
 }
