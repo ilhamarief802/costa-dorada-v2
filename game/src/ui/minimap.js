@@ -83,7 +83,7 @@ export default class Minimap {
     }
   }
 
-  update(dt, playerPos, playerHeading, cameraYaw, objective) {
+  update(dt, playerPos, playerHeading, cameraYaw, objective, actors = null) {
     this.timer -= dt;
     this.pulse += dt;
     if (this.timer > 0) return;
@@ -94,6 +94,45 @@ export default class Minimap {
 
     const player = this.toMap(playerPos.x, playerPos.z);
     const objectivePoint = this.toMap(objective.x, objective.z);
+
+    // Traffic and pedestrians as faint ticks, police as hot dots: the map reads as a city, not
+    // a diagram.
+    if (actors) {
+      if (actors.cars) {
+        ctx.fillStyle = 'rgba(238, 224, 196, 0.34)';
+        for (const car of actors.cars) {
+          const p = this.toMap(car.x, car.z);
+          ctx.fillRect(p.x - 1.2, p.y - 1.2, 2.4, 2.4);
+        }
+      }
+      if (actors.people) {
+        ctx.fillStyle = 'rgba(226, 194, 150, 0.22)';
+        for (const person of actors.people) {
+          const p = this.toMap(person.x, person.z);
+          ctx.fillRect(p.x - 0.8, p.y - 0.8, 1.6, 1.6);
+        }
+      }
+      if (actors.units) {
+        for (const unit of actors.units) {
+          if (!unit.alive) continue;
+          const p = this.toMap(unit.x, unit.z);
+          ctx.fillStyle = Math.sin(this.pulse * 9.2) > 0 ? '#ff5a42' : '#5a86ff';
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 2.8, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      if (actors.markers) {
+        for (const marker of actors.markers) {
+          const p = this.toMap(marker.x, marker.z);
+          ctx.strokeStyle = 'rgba(120, 226, 200, 0.85)';
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 3.2, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+    }
 
     ctx.save();
     ctx.translate(objectivePoint.x, objectivePoint.y);

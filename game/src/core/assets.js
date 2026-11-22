@@ -100,6 +100,20 @@ export default class Assets {
     }, { srgb: true });
   }
 
+  /** A soft, wide falloff for contact shadows under bodies and props. White RGB with an alpha
+   *  ramp, so a black material colour multiplies cleanly into a black shadow. */
+  blob() {
+    return this.texture('blob', (ctx, size) => {
+      const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+      gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+      gradient.addColorStop(0.38, 'rgba(255, 255, 255, 0.82)');
+      gradient.addColorStop(0.66, 'rgba(255, 255, 255, 0.34)');
+      gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, size, size);
+    }, { srgb: false });
+  }
+
   sign(text, { background = '#1b1622', ink = '#ffd9a0', border = '#ff9f4d', font = 700 } = {}) {
     const key = `sign:${text}:${background}:${ink}:${border}:${font}`;
     if (this.cache.has(key)) return this.cache.get(key);

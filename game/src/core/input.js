@@ -15,6 +15,12 @@ const BINDINGS = {
   confirm: ['Enter', 'NumpadEnter'],
   restart: ['KeyR'],
   horn: ['KeyH'],
+  steal: ['KeyF'],
+  reload: ['KeyR'],
+  weapon1: ['Digit1'],
+  weapon2: ['Digit2'],
+  fire: ['Mouse0'],
+  save: ['F5'],
 };
 
 export default class Input {
@@ -52,9 +58,12 @@ export default class Input {
     };
     this.handleMouseDown = () => {
       this.dragging = true;
+      if (!this.down.has('Mouse0')) this.edges.add('Mouse0');
+      this.down.add('Mouse0');
     };
     this.handleMouseUp = () => {
       this.dragging = false;
+      this.down.delete('Mouse0');
     };
     this.handlePointerLock = () => {
       this.locked = document.pointerLockElement === this.canvas;

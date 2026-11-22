@@ -18,7 +18,9 @@ export default class Weather {
     this.night = false;
     this.fogColor = new THREE.Color();
     this.palette = PALETTE.golden;
-    this.scene.fog = new THREE.Fog(0xdcae8c, 75, 760);
+    // Exponential haze, not a linear wall: distance bleeds into the sun's own colour so the
+    // skyline dissolves into the same light the sky is lit by.
+    this.scene.fog = new THREE.FogExp2(0xdcae8c, 0.0017);
     this.setHour(this.hour, true);
   }
 
@@ -39,9 +41,10 @@ export default class Weather {
     this.water.apply(palette, night);
     this.water.setSunDirection(this.sky.sunDir);
     if (this.scene.fog) {
-      this.scene.fog.color.set(palette.fog);
-      this.scene.fog.near = palette.fogNear;
-      this.scene.fog.far = palette.fogFar;
+      const sunTint = new THREE.Color(palette.sun);
+      this.fogColor.set(palette.fog).lerp(sunTint, night ? 0.16 : 0.34);
+      this.scene.fog.color.copy(this.fogColor);
+      this.scene.fog.density = night ? 0.0024 : 0.00165;
     }
     this.scene.background = new THREE.Color(palette.clear);
     this.renderer.toneMappingExposure = palette.exposure;

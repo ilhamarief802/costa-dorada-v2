@@ -390,3 +390,157 @@ html, body {
 }
 
 .hidden-cursor { cursor: none; }
+
+/* ---------------------------------------------------------------- phase 2 additions */
+
+.wanted-stars {
+  position: absolute;
+  top: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 7px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+#hud.wanted .wanted-stars { opacity: 1; }
+
+.star {
+  width: 19px;
+  height: 19px;
+  background: rgba(14, 15, 18, 0.6);
+  border: 1px solid rgba(243, 231, 207, 0.22);
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+  transform: rotate(2deg);
+  transition: background 0.16s ease;
+}
+
+.star.lit {
+  background: var(--amber-bright);
+  border-color: var(--amber-bright);
+  box-shadow: 0 0 10px rgba(255, 207, 131, 0.55);
+}
+
+.star.hot.lit { background: #ff7a4a; border-color: #ff7a4a; box-shadow: 0 0 14px rgba(255, 90, 60, 0.7); }
+
+.mission-status { letter-spacing: 0.16em; text-transform: uppercase; }
+.mission-status.alert { color: #ff7a5a; }
+
+.activity-ticker {
+  position: absolute;
+  right: 30px;
+  bottom: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 9px 14px;
+  border-right: 2px solid var(--amber);
+  background: linear-gradient(260deg, rgba(9, 10, 12, 0.74), rgba(9, 10, 12, 0));
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+.activity-ticker.visible { opacity: 1; }
+.activity-ticker b { font-size: 10px; letter-spacing: 0.22em; color: var(--amber-bright); }
+.activity-ticker span { font-size: 9.5px; letter-spacing: 0.14em; color: rgba(243, 231, 207, 0.66); }
+
+.damage-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(120, 20, 12, 0) 42%, rgba(150, 26, 16, 0.5) 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+#hud.hurt .damage-flash { opacity: 1; transition: opacity 0.04s ease; }
+
+#damage-numbers {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 11;
+  overflow: hidden;
+}
+
+.damage-number {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #ffe0b4;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+  will-change: transform, opacity;
+}
+
+.title-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 34px;
+  max-width: 320px;
+}
+
+.title-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 11px 2px 11px 0;
+  border: 0;
+  border-bottom: 1px solid rgba(243, 231, 207, 0.16);
+  background: none;
+  color: var(--cream);
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: 0.28em;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.16s ease, padding 0.16s ease;
+}
+
+.title-item:hover { color: var(--amber-bright); padding-left: 8px; }
+.title-item .hint { font-size: 8.5px; letter-spacing: 0.16em; color: rgba(243, 231, 207, 0.42); }
+.title-item.dim, .title-item:disabled { color: rgba(243, 231, 207, 0.28); cursor: default; }
+.title-item.dim:hover { padding-left: 0; color: rgba(243, 231, 207, 0.28); }
+
+.controls-panel {
+  position: absolute;
+  right: 8vw;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 300px;
+  padding: 26px 30px;
+  border: 1px solid rgba(243, 231, 207, 0.16);
+  background: rgba(8, 9, 11, 0.86);
+}
+
+.controls-panel.hidden { display: none; }
+
+/* ---------------------------------------------------------------- transients */
+
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: 132px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 20px;
+  background: linear-gradient(180deg, rgba(9, 10, 12, 0.82), rgba(9, 10, 12, 0.34));
+  border-left: 2px solid var(--amber);
+  opacity: 0;
+  transition: opacity 0.22s ease, transform 0.22s ease;
+  pointer-events: none;
+  white-space: nowrap;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+
+.toast.visible { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+.toast b { font-size: 11px; letter-spacing: 0.2em; color: var(--amber-bright); font-weight: 700; }

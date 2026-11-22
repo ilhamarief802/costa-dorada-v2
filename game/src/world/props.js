@@ -272,8 +272,8 @@ export default class Props {
 
   setNight(night) {
     this.globeMaterial.color.set(night ? 0xffc271 : 0xf4e4c2);
-    this.haloMaterial.opacity = night ? 1 : 0.18;
-    this.haloMaterial.size = night ? 4.2 : 2.1;
+    this.haloMaterial.opacity = night ? 1 : 0.06;
+    this.haloMaterial.size = night ? 4.2 : 1.5;
     this.poolMaterial.opacity = night ? 0.32 : 0;
   }
 }

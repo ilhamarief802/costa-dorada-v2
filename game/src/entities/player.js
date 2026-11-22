@@ -26,10 +26,37 @@ export default class Player {
     this.sprinting = false;
     this.speed = 0;
     this.hidden = false;
+    this.health = 100;
+    this.armour = 72;
+    this.hitHeight = 1.5;
+    this.hitRadius = 0.5;
+    this.damageFlash = 0;
 
     this.build(rng);
     scene.add(this.root);
     this.applyPose(1);
+  }
+
+  /** Incoming damage: armour soaks it first, then health. Death is reported to the caller. */
+  onDamage(amount, payload) {
+    if (this.health <= 0) return;
+    let left = amount;
+    if (this.armour > 0) {
+      const soak = Math.min(this.armour, left * 0.72);
+      this.armour -= soak;
+      left -= soak;
+    }
+    this.health = Math.max(0, this.health - left);
+    this.damageFlash = 0.32;
+    if (this.events) this.events.emit('player:hurt', { amount, payload, health: this.health });
+  }
+
+  heal(amount) {
+    this.health = Math.min(100, this.health + amount);
+  }
+
+  addArmour(amount) {
+    this.armour = Math.min(100, this.armour + amount);
   }
 
   build(rng) {
@@ -251,6 +278,17 @@ export default class Player {
 
     this.arms[0].pivot.rotation.z = 0.08 + this.crouchAmount * 0.1;
     this.arms[1].pivot.rotation.z = -0.08 - this.crouchAmount * 0.1;
+
+    // Firing stance: both arms come up and forward, and the torso squares to the camera.
+    this.aim = damp(this.aim ?? 0, this.aiming ? 1 : 0, 12, dt);
+    if (this.aim > 0.01) {
+      const raise = this.aim;
+      this.arms[0].pivot.rotation.x = lerp(this.arms[0].pivot.rotation.x, -1.42, raise);
+      this.arms[1].pivot.rotation.x = lerp(this.arms[1].pivot.rotation.x, -1.36, raise);
+      this.arms[0].pivot.rotation.z = lerp(this.arms[0].pivot.rotation.z, -0.34, raise);
+      this.arms[1].pivot.rotation.z = lerp(this.arms[1].pivot.rotation.z, 0.1, raise);
+    }
+    if (this.damageFlash > 0) this.damageFlash = Math.max(0, this.damageFlash - dt);
 
     const bob = Math.abs(Math.sin(this.phase)) * 0.045 * this.amplitude;
     this.rig.position.y = bob - this.crouchAmount * 0.12;

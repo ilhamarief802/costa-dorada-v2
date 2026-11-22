@@ -23,6 +23,12 @@ const fragmentShader = /* glsl */ `
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
   }
 
+  // Triangular-PDF dither: +-1/255 of a step, decorrelated per pixel, which breaks the banding
+  // a smooth wide gradient shows at 8 bits without visibly graining the sky.
+  float dither(vec2 p) {
+    return (hash(p) + hash(p + 41.7) - 1.0) / 255.0;
+  }
+
   void main() {
     vec3 d = normalize(vDir);
     float h = clamp(d.y, -1.0, 1.0);
@@ -49,6 +55,7 @@ const fragmentShader = /* glsl */ `
     }
 
     if (h < 0.0) color = mix(color, uHorizon * 0.55, smoothstep(0.0, -0.18, h));
+    color += dither(gl_FragCoord.xy);
     gl_FragColor = vec4(color, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -97,15 +104,16 @@ export default class Sky {
 
     this.sun = new THREE.DirectionalLight(0xffb070, 2.2);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(1024, 1024);
+    this.sun.shadow.mapSize.set(2048, 2048);
     this.sun.shadow.camera.near = 1;
-    this.sun.shadow.camera.far = 420;
-    this.sun.shadow.camera.left = -52;
-    this.sun.shadow.camera.right = 52;
-    this.sun.shadow.camera.top = 52;
-    this.sun.shadow.camera.bottom = -52;
-    this.sun.shadow.bias = -0.00035;
-    this.sun.shadow.normalBias = 0.035;
+    this.sun.shadow.camera.far = 300;
+    this.sun.shadow.camera.left = -38;
+    this.sun.shadow.camera.right = 38;
+    this.sun.shadow.camera.top = 38;
+    this.sun.shadow.camera.bottom = -38;
+    this.sun.shadow.camera.updateProjectionMatrix();
+    this.sun.shadow.bias = -0.00022;
+    this.sun.shadow.normalBias = 0.05;
     this.sun.target.position.set(0, 0, 0);
     scene.add(this.sun);
     scene.add(this.sun.target);

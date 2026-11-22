@@ -352,7 +352,7 @@ export default class Buildings {
     this.windowMaterial.needsUpdate = true;
     this.shopMaterial.toneMapped = !night;
     this.shopMaterial.needsUpdate = true;
-    if (this.signGlowMaterial) this.signGlowMaterial.opacity = night ? 0.75 : 0.06;
+    if (this.signGlowMaterial) this.signGlowMaterial.opacity = night ? 0.72 : 0.0;
 
     for (const material of this.bannerMaterials) {
       material.color.set(night ? 0xffffff : 0xbdb0a2);
