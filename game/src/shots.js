@@ -1,79 +1,75 @@
-// The screenshot scenes behind ?shot=start|play|end. Each one plays the real rules forward from a
-// fresh world for a fixed number of steps, steered by a simple autopilot (look ahead each way the
-// paddle could move, keep clear of blocks, chase the lowest coin when that is safe), so the frame
-// is what a short game really looks like and the same seed always gives the same frame.
-import { FIELD, PLAYER, STEP } from './config.js';
-import { EVENT_OVER, KIND_BLOCK } from './world.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// Authored camera-and-actor staging for the screenshot rig. A shot freezes the simulation,
+// places the camera and cast exactly, and lets main.js settle one frame before flagging ready.
 
-const START_SECONDS = 5;
-const PLAY_SECONDS = 26;
-const END_LIMIT_SECONDS = 600;
-/**
- * How far ahead, in seconds, the autopilot checks each way it could move: the play scene's pilot
- * looks well ahead and keeps all its lives; the end scene's looks only a moment ahead, so it is
- * caught out once the blocks speed up, as a hurried player is.
- */
-const HORIZON_PLAY = 0.7;
-const HORIZON_END = 0.25;
-const SAMPLE = 1 / 30;
-const DIRECTIONS = [0, -1, 1];
-/** Extra room, each side, it keeps between the paddle and a block. */
-const MARGIN = 10;
+import { SHOT_TIMES } from './core/config.js';
 
-/** Seconds until moving in `direction` (-1, 0, 1) runs the paddle into a block; Infinity when it never does. */
-function timeToHit(state, direction, horizon) {
-  const player = state.player;
-  for (let t = SAMPLE; t <= horizon; t += SAMPLE) {
-    const x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * t));
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      if (!item.active || item.kind !== KIND_BLOCK) continue;
-      const y = item.y + item.speed * t;
-      if (y + item.height > player.y && y < player.y + player.height && item.x < x + player.width + MARGIN && item.x + item.width > x - MARGIN) return t;
-    }
-  }
-  return Infinity;
+export const SHOT_NAMES = ['cover', 'night', 'drive'];
+
+function hudState(game) {
+  const actor = game.driving ? game.vehicle : game.player;
+  return {
+    hour: game.timeOfDay,
+    position: actor.position,
+    heading: game.driving ? game.vehicle.heading : game.player.heading,
+    cameraYaw: game.follow.yaw,
+  };
 }
 
-/** Of the safe ways to move, the one toward the lowest coin (or the centre); else the one that is hit last. */
-function autopilot(state, horizon) {
-  const player = state.player;
-  let coin = null;
-  for (let index = 0; index < state.items.length; index += 1) {
-    const item = state.items[index];
-    if (item.active && item.kind !== KIND_BLOCK && (coin === null || item.y > coin.y)) coin = item;
-  }
-  const target = coin === null ? FIELD.width / 2 : coin.x + coin.width / 2;
-  const centre = player.x + player.width / 2;
-  const wanted = target > centre + 8 ? 1 : target < centre - 8 ? -1 : 0;
-  let best = wanted;
-  let bestTime = timeToHit(state, wanted, horizon);
-  for (let index = 0; index < DIRECTIONS.length && bestTime !== Infinity; index += 1) {
-    const time = timeToHit(state, DIRECTIONS[index], horizon);
-    if (time > bestTime) {
-      bestTime = time;
-      best = DIRECTIONS[index];
-    }
-  }
-  return best;
-}
+export function applyShot(game, requested) {
+  const name = SHOT_NAMES.includes(requested) ? requested : 'cover';
+  game.frozen = true;
+  game.started = true;
+  game.paused = false;
+  game.menus.hideTitle();
+  game.menus.hidePause();
+  game.menus.title.style.display = 'none';
+  game.menus.pause.style.display = 'none';
+  game.hud.root.style.transition = 'none';
+  game.hud.root.style.opacity = '1';
+  game.hud.prompt.style.transition = 'none';
+  game.hud.show(true);
+  game.input.enabled = false;
+  document.body.classList.add('hidden-cursor');
 
-/**
- * Set `world` to the named scene (start, play or end; any other name is start) and return the
- * screen to draw over it and the best score to show.
- */
-export function stageShot(name, world) {
-  world.reset();
-  if (name !== 'play' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, 0, true);
-    return { screen: SCREEN_TITLE, best: 0 };
+  if (name === 'drive') {
+    game.driving = true;
+    game.timeOfDay = SHOT_TIMES.drive;
+    game.weather.setHour(game.timeOfDay, true);
+    game.player.setVisible(false);
+    const start = { x: 31.0, z: 74, heading: 0 };
+    game.vehicle.poseParked(start.x, start.z, start.heading);
+    game.vehicle.driven = true;
+    game.vehicle.setNight(game.weather.night);
+    game.follow.setPose({ x: 31.8, y: 3.55, z: 86.5 }, { x: 30.2, y: 1.35, z: 44 }, 64);
+    game.hud.setPrompt('');
+  } else {
+    game.driving = false;
+    game.timeOfDay = SHOT_TIMES[name];
+    game.weather.setHour(game.timeOfDay, true);
+    const cover = game.plan.cover;
+    game.player.setVisible(true);
+    game.player.reset(cover.player.x, cover.player.z, cover.player.rot);
+    game.player.poseIdle(cover.player.rot, 0.7);
+    game.vehicle.poseParked(cover.car.x, cover.car.z, cover.car.rot);
+    game.vehicle.driven = false;
+    game.vehicle.setNight(game.weather.night);
+    const cam = cover.camera;
+    game.follow.setPose(
+      { x: cam.x, y: cam.y, z: cam.z },
+      { x: cam.targetX, y: cam.targetY, z: cam.targetZ },
+      56,
+    );
+    game.hud.setPrompt('<b>E</b>&nbsp;&nbsp;ENTER THE COUPE');
   }
-  const limit = name === 'end' ? END_LIMIT_SECONDS : PLAY_SECONDS;
-  const horizon = name === 'end' ? HORIZON_END : HORIZON_PLAY;
-  for (let index = 0; index < limit / STEP; index += 1) {
-    if (world.step(STEP, autopilot(world.state, horizon), false) & EVENT_OVER) break;
-  }
-  const over = world.state.lives === 0;
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+
+  const focus = game.driving ? game.vehicle.position : game.player.position;
+  game.sky.follow(focus);
+  game.traffic.apply(1);
+  game.pedestrians.apply(1);
+  if (!game.player.hidden) game.player.applyPose(1);
+  game.vehicle.applyPose(1);
+  game.landmarks.update(0, 0);
+  game.hud.update(0, hudState(game));
+  game.follow.apply(1);
+  return name;
 }
