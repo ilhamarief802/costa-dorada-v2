@@ -5,8 +5,13 @@
 
 import { CAR } from '../core/config.js';
 import { clamp, damp, lerp } from '../core/math.js';
-import { buildCar } from '../core/carkit.js';
+import { buildCar, flankX } from '../core/carkit.js';
 import { makeGlassMaterial, setGlassSky } from '../core/materials.js';
+
+// 16 segments puts a vertex exactly at theta = -90 degrees, i.e. exactly at the bottom of the
+// tyre, so the tyre's lowest vertex IS its radius below the hub. With an odd or awkward count the
+// inscribed polygon falls short and every wheel hovers a few millimetres above the road.
+const TYRE_SEGMENTS = 16;
 
 export default class Vehicle {
   constructor(scene, plan, assets, collision) {
@@ -44,8 +49,6 @@ export default class Vehicle {
 
     const kit = buildCar('coupe');
     this.spec = kit.spec;
-    // The rocker panel sits at the shell's lowest section, not a separately declared number.
-    this.spec.sill = Math.min(...this.spec.stations.map((s) => s.cy - s.down));
     const teal = new THREE.Color(0x1e8894);
 
     const paint = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.22, metalness: 0.55 });
@@ -74,10 +77,10 @@ export default class Vehicle {
     // The flank bands are lofted from the same station table, so they follow the taper of the
     // body instead of poking out past the tail.
     const stripes = [];
-    const band = coachline(this.spec.stations, this.spec.canopy.yBottom - 0.06, 0.028, 0.05, 0xf2e8cc);
+    const band = coachline(this.spec.stations, flankX, this.spec.canopy.yBottom - 0.055, 0.03, 0xf2e8cc);
     stripes.push({ geometry: band });
-    const roofBand = new THREE.BoxGeometry(0.22, 0.018, 1.0);
-    roofBand.translate(0, this.spec.canopy.yTop + 0.004, (this.spec.canopy.roofZ0 + this.spec.canopy.roofZ1) / 2);
+    const roofBand = new THREE.BoxGeometry(0.2, 0.014, this.spec.canopy.roofZ1 - this.spec.canopy.roofZ0 - 0.14);
+    roofBand.translate(0, this.spec.canopy.yTop + 0.012, (this.spec.canopy.roofZ0 + this.spec.canopy.roofZ1) / 2);
     stripes.push({ geometry: roofBand, color: 0xf2e8cc });
     this.stripeMesh = new THREE.Mesh(
       mergeParts(stripes),
@@ -94,6 +97,11 @@ export default class Vehicle {
     this.setTail(0);
 
     // Wheels: tyre plus rim, spun from the physics state, front pair steers.
+    //
+    // Each wheel is a group whose ORIGIN IS THE HUB, at (±wheelTrack, R, ±wheelBase): the tyre is a
+    // cylinder of radius R about that origin, so its lowest vertex is exactly y = 0 — the car's own
+    // ground line. The wheel therefore touches the road by construction, not by a tuned offset, and
+    // a spin about the group's local x axis turns it about its own axle.
     this.wheels = [];
     const tyreMaterial = new THREE.MeshStandardMaterial({ color: 0x131416, roughness: 0.95 });
     const rimMaterial = new THREE.MeshStandardMaterial({ color: 0xc8c2b4, roughness: 0.24, metalness: 0.95 });
@@ -101,19 +109,28 @@ export default class Vehicle {
     for (const side of [-1, 1]) {
       for (const axle of [-1, 1]) {
         const group = new THREE.Group();
-        group.position.set(side * this.spec.width * 0.42, this.spec.wheelRadius, axle * this.spec.wheelBase);
-        const tyre = new THREE.Mesh(new THREE.CylinderGeometry(this.spec.wheelRadius, this.spec.wheelRadius, 0.23, 14), tyreMaterial);
+        group.position.set(side * this.spec.wheelTrack, this.spec.wheelRadius, axle * this.spec.wheelBase);
+        const tyre = new THREE.Mesh(
+          new THREE.CylinderGeometry(this.spec.wheelRadius, this.spec.wheelRadius, this.spec.tyreWidth, TYRE_SEGMENTS),
+          tyreMaterial,
+        );
         tyre.rotation.z = Math.PI / 2;
         tyre.castShadow = true;
         group.add(tyre);
-        const rim = new THREE.Mesh(new THREE.CylinderGeometry(this.spec.wheelRadius * 0.56, this.spec.wheelRadius * 0.56, 0.245, 12), rimMaterial);
+        const rim = new THREE.Mesh(
+          new THREE.CylinderGeometry(this.spec.wheelRadius * 0.58, this.spec.wheelRadius * 0.58, this.spec.tyreWidth + 0.012, TYRE_SEGMENTS),
+          rimMaterial,
+        );
         rim.rotation.z = Math.PI / 2;
         group.add(rim);
-        const hub = new THREE.Mesh(new THREE.CylinderGeometry(this.spec.wheelRadius * 0.2, this.spec.wheelRadius * 0.2, 0.26, 8), hubMaterial);
+        const hub = new THREE.Mesh(
+          new THREE.CylinderGeometry(this.spec.wheelRadius * 0.2, this.spec.wheelRadius * 0.2, this.spec.tyreWidth + 0.03, 10),
+          hubMaterial,
+        );
         hub.rotation.z = Math.PI / 2;
         group.add(hub);
         this.root.add(group);
-        this.wheels.push({ group, tyre, front: axle < 0 });
+        this.wheels.push({ group, tyre, rim, hub, front: axle < 0, side });
       }
     }
 
@@ -123,9 +140,9 @@ export default class Vehicle {
     this.glowSprites = [];
     for (const side of [-1, 1]) {
       const light = new THREE.SpotLight(0xffe2b4, 0, 26, 0.42, 0.62, 1.6);
-      light.position.set(side * this.spec.width * 0.32, this.spec.lamps.headY, -1.95);
+      light.position.set(side * this.spec.width * 0.32, this.spec.lamps.headY, this.spec.noseZ + 0.1);
       const target = new THREE.Object3D();
-      target.position.set(side * this.spec.width * 0.42, 0.05, -9.5);
+      target.position.set(side * this.spec.width * 0.5, 0.05, this.spec.noseZ - 8.0);
       this.root.add(target);
       light.target = target;
       this.root.add(light);
@@ -320,7 +337,10 @@ export default class Vehicle {
     this.bodyGroup.rotation.z = damp(this.bodyGroup.rotation.z, this.roll, 10, dt);
     this.bodyGroup.rotation.x = damp(this.bodyGroup.rotation.x, this.pitch, 8, dt);
     for (const wheel of this.wheels) {
-      wheel.tyre.rotation.x = this.wheelSpin;
+      // Spin the whole group about its own x axis — the axle — so tyre, rim and hub turn as one
+      // wheel. (Setting `tyre.rotation.x` used to fight the cylinder's own z-rotation and left the
+      // tread pointing at the road.)
+      wheel.group.rotation.x = this.wheelSpin;
       wheel.group.rotation.y = wheel.front ? this.steer * 0.9 : 0;
     }
     const braking = this.forwardSpeed < -0.2 || this.handbrake || this.brakeFade > 0.05;
@@ -358,22 +378,38 @@ export default class Vehicle {
   }
 }
 
-/** Local merge for the coachline strips, which carry per-part colours only. */
-function coachline(stations, y, height, thickness, color) {
+/**
+ * The coachline: a cream band down each flank, sampled off the shell's own flank curve at the
+ * stated height so it lies ON the paint at every station instead of cutting through it at the
+ * waist and floating off it at the ends.
+ */
+function coachline(stations, flankX, y, height, color) {
   const positions = [];
   const colors = [];
   const tint = new THREE.Color(color);
   const quad = (a, b, c, d) => {
-    positions.push(...a, ...b, ...c, ...a, ...c, ...d);
-    for (let i = 0; i < 6; i += 1) colors.push(tint.r, tint.g, tint.b);
+    // Two-sided: a band on a curved flank is seen from outside, but a reversed quad would cull it.
+    for (const [p, q, r] of [[a, b, c], [a, c, d], [a, c, b], [a, d, c]]) {
+      positions.push(...p, ...q, ...r);
+      for (let i = 0; i < 3; i += 1) colors.push(tint.r, tint.g, tint.b);
+    }
   };
+  const inset = 0.006;
   for (const side of [-1, 1]) {
     for (let i = 0; i < stations.length - 1; i += 1) {
       const a = stations[i];
       const b = stations[i + 1];
-      const xa = side * (a.w - 0.012);
-      const xb = side * (b.w - 0.012);
-      quad([xa, y, a.z], [xb, y, b.z], [xb, y + height, b.z], [xa, y + height, a.z]);
+      if (a.y1 - a.y0 < 0.14 || b.y1 - b.y0 < 0.14) continue;
+      const yaBot = Math.max(a.y0 + 0.03, Math.min(y, a.y1 - 0.03));
+      const ybBot = Math.max(b.y0 + 0.03, Math.min(y, b.y1 - 0.03));
+      const yaTop = Math.min(a.y1 - 0.02, yaBot + height);
+      const ybTop = Math.min(b.y1 - 0.02, ybBot + height);
+      const xaBot = side * (flankX(a, yaBot) + inset);
+      const xbBot = side * (flankX(b, ybBot) + inset);
+      const xaTop = side * (flankX(a, yaTop) + inset);
+      const xbTop = side * (flankX(b, ybTop) + inset);
+      if (Math.abs(xaBot) < 1e-4 || Math.abs(xbBot) < 1e-4) continue;
+      quad([xaBot, yaBot, a.z], [xbBot, ybBot, b.z], [xbTop, ybTop, b.z], [xaTop, yaTop, a.z]);
     }
   }
   const geometry = new THREE.BufferGeometry();

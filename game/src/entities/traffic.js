@@ -118,6 +118,13 @@ export default class Traffic {
     this.cars = [];
     this.time = 0;
     this.night = false;
+    /**
+     * When true, only cars an authored frame has cast are drawn. A photo of a staged street shows
+     * the cast the shot declares and nothing else: ambient traffic that happened to spawn in the
+     * same lane is what made cars clip into each other in the captured
+     * frames — a staged car and a background car both claiming x 29, z 143.
+     */
+    this.stagedOnly = false;
     this.playerActor = null;
     this.group = new THREE.Group();
     this.group.name = 'traffic';
@@ -206,7 +213,6 @@ export default class Traffic {
       if (!cars.length) continue;
       const kit = buildCar(shape);
       const spec = kit.spec;
-      spec.sill = Math.min(...spec.stations.map((s) => s.cy - s.down));
       const bucket = {
         spec,
         paint: new THREE.InstancedMesh(kit.body, paint, cars.length),
@@ -218,10 +224,12 @@ export default class Traffic {
         wheels: [],
       };
       const wheelCount = cars.length * 4;
-      const wheelGeometry = new THREE.CylinderGeometry(spec.wheelRadius, spec.wheelRadius, 0.22, 12);
+      // The tyre is a cylinder of the spec's own radius and width: its lowest vertex is exactly
+      // y = -R in the wheel's local frame, and the wheel sits at y = R, so it touches y = 0.
+      const wheelGeometry = new THREE.CylinderGeometry(spec.wheelRadius, spec.wheelRadius, spec.tyreWidth, 16);
       wheelGeometry.rotateZ(Math.PI / 2);
       bucket.tyre = new THREE.InstancedMesh(wheelGeometry, tyre, wheelCount);
-      const rimGeometry = new THREE.CylinderGeometry(spec.wheelRadius * 0.58, spec.wheelRadius * 0.58, 0.235, 10);
+      const rimGeometry = new THREE.CylinderGeometry(spec.wheelRadius * 0.58, spec.wheelRadius * 0.58, spec.tyreWidth + 0.012, 16);
       rimGeometry.rotateZ(Math.PI / 2);
       bucket.rim = new THREE.InstancedMesh(rimGeometry, rim, wheelCount);
       for (const mesh of [bucket.paint, bucket.chrome, bucket.dark, bucket.glass, bucket.head, bucket.tail, bucket.tyre, bucket.rim]) {
@@ -602,11 +610,16 @@ export default class Traffic {
       const shape = this.meshes[car.shape];
       if (!shape) continue;
       const spec = shape.spec;
+      // A staged frame draws only its own cast: an uncounted car is moved under the world, where
+      // its instance matrices still exist but nothing renders in the road it was spawned in.
+      const hidden = this.stagedOnly && !car.castAt && !car.driven;
       const x = lerp(car.prevX, car.x, alpha);
       const z = lerp(car.prevZ, car.z, alpha);
       const delta = wrapAngle(car.heading - car.prevHeading);
       const heading = car.prevHeading + delta * alpha;
-      const y = this.plan.groundHeight(x, z) + 0.02;
+      // The ground line is the road itself: the car's own y = 0 is where its tyres meet the
+      // asphalt, so a car is placed AT the ground height and never lifted off it.
+      const y = hidden ? -60 : this.plan.groundHeight(x, z);
 
       // Body roll from steering and a small pitch from braking, so a moving car never looks rigid.
       const roll = clamp(car.steer * Math.min(1, car.speed / 12) * 0.14, -0.07, 0.07);
@@ -641,7 +654,7 @@ export default class Traffic {
       for (const axle of [-1, 1]) {
         for (const side of [-1, 1]) {
           const slot = index * 4 + (axle > 0 ? 2 : 0) + (side > 0 ? 1 : 0);
-          local.position.set(side * spec.width * 0.42, spec.wheelRadius, axle * spec.wheelBase);
+          local.position.set(side * spec.wheelTrack, spec.wheelRadius, axle * spec.wheelBase);
           local.rotation.set(car.wheelSpin, axle < 0 ? car.steer * 0.85 : 0, 0, 'YXZ');
           local.scale.setScalar(car.scale);
           local.updateMatrix();
@@ -654,14 +667,14 @@ export default class Traffic {
       // Lamp halos: one pair of head sprites ahead, one red bloom behind.
       const glow = this.glows[car.index];
       if (glow) {
-        const front = -spec.stations[0].z + 0.1;
+        const front = -spec.noseZ + 0.1;
         const fx = -Math.sin(heading);
         const fz = -Math.cos(heading);
         glow.head.position.set(x + fx * front, y + spec.lamps.headY, z + fz * front);
-        glow.head.material.opacity = this.night ? 0.72 : 0.34;
+        glow.head.material.opacity = hidden ? 0 : this.night ? 0.72 : 0.34;
         glow.head.scale.set(this.night ? 3.6 : 3.0, this.night ? 2.2 : 1.8, 1);
         glow.tail.position.set(x - fx * front, y + spec.lamps.tailY, z - fz * front);
-        glow.tail.material.opacity = this.night ? 0.55 * (0.3 + tail) : 0.1 + 0.5 * (tail - 0.24);
+        glow.tail.material.opacity = hidden ? 0 : this.night ? 0.55 * (0.3 + tail) : 0.1 + 0.5 * (tail - 0.24);
         glow.tail.scale.set(this.night ? 2.4 : 1.7, this.night ? 1.4 : 1.0, 1);
       }
 
@@ -676,8 +689,14 @@ export default class Traffic {
         // tyres instead of being hidden under the sills, where nothing can see it.
         const across = car.shape === 'wagon' ? 4.6 : 4.4;
         const pair = this.blobSlots[car.index];
-        this.blobs.write(pair[0], x, y + 0.07, z, across, 1, heading, 1.34);
-        this.blobs.write(pair[1], x, y + 0.075, z, across * 0.6, 1, heading, 1.24);
+        if (hidden) {
+          // An uncast car must not leave its ambient-occlusion pool painted on the road either.
+          this.blobs.hide(pair[0]);
+          this.blobs.hide(pair[1]);
+        } else {
+          this.blobs.write(pair[0], x, y + 0.07, z, across, 1, heading, 1.34);
+          this.blobs.write(pair[1], x, y + 0.075, z, across * 0.6, 1, heading, 1.24);
+        }
       }
     }
 

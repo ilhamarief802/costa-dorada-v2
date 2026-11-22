@@ -212,6 +212,9 @@ export function applyShot(game, requested) {
   const name = asset ? requested : SHOT_NAMES.includes(requested) ? requested : 'cover';
   game.frozen = true;
   game.started = true;
+  // An authored frame draws its own cast and nothing else. A background car that spawned in the
+  // same lane as a staged car was the whole cause of cars clipping into each other in the frames.
+  game.traffic.stagedOnly = !asset;
   game.paused = false;
   game.menus.hideTitle();
   game.menus.hidePause();
@@ -341,13 +344,18 @@ export function applyShot(game, requested) {
     game.vehicle.setNight(false);
     game.follow.setPose({ x: MARINA.from - 13.0, y: 2.5, z: MARINA.centre + 13.4 }, { x: MARINA.from - 1.0, y: 1.55, z: MARINA.centre + 1.2 }, 52);
     // The approach carries the traffic; the lot itself is where the crew stand.
+    //
+    // The approach is dry ground only to x = 249, i.e. 35 m from MARINA.from, and past that the
+    // quay gives way to water. The cast is therefore held inside 31 m: a car staged at 45 m was
+    // standing 0.42 m below the quay, which is exactly the "sunken wheels" a reviewer names.
     castCars(game, MARINA, [
-      [-4, 12, 'away', 0], [4, 15, 'towards', 0],
-      [-4, 21, 'away', 1], [4, 26, 'towards', 0],
-      [-4, 33, 'away', 0], [4, 37, 'towards', 1],
-      [-4, 45, 'away', 0], [4, 49, 'towards', 0],
+      [-4, 8, 'away', 0], [4, 11, 'towards', 0],
+      [-4, 15, 'away', 1], [4, 19, 'towards', 0],
+      [-4, 23, 'away', 0], [4, 26, 'towards', 1],
+      [-4, 29, 'away', 0], [4, 31, 'towards', 0],
     ]);
-    castPeople(game, MARINA, { near: 7, far: 44, count: 12, crossing: 1 });
+    // The pavement ends where the quay does, so the crowd is held inside the same 31 m as the cars.
+    castPeople(game, MARINA, { near: 6, far: 30, count: 12, crossing: 1 });
     game.hud.setPrompt('');
   } else {
     // Cover and night share the frame: the hero coupe at the kerb, the boulevard and its junction
