@@ -269,6 +269,76 @@ export default class Pedestrians {
     this.buildMeshes();
   }
 
+  /**
+   * Aim the crowd's gaze and pose. Everything inside `radius` of `center` is turned to `facing`
+   * plus a small per-person offset, and posed mid-stride: a screenshot of forty people all looking
+   * the same way, all with their legs together, reads as a diorama rather than a street.
+   */
+  stageAll({ center, radius = 40, facing = 0 }) {
+    let staged = 0;
+    for (const person of this.people) {
+      if (!person.alive) continue;
+      if (Math.hypot(person.x - center.x, person.z - center.z) > radius) continue;
+      // A 10-25 degree leg split, a 10-40 degree shoulder turn and opposed arms, each person
+      // offset a little from the next so the crowd is not a chorus line.
+      const phase = staged * 2.399; // golden angle: no two neighbours strike the same pose
+      person.stageStride = 0.19 + ((Math.sin(phase) + 1) / 2) * 0.24;
+      person.stageTorso = 0.19 + ((Math.sin(phase * 1.7 + 1) + 1) / 2) * 0.5;
+      person.stageArm = person.stageStride * 1.2;
+      person.heading = facing + Math.sin(phase * 0.7) * 0.5;
+      person.prevHeading = person.heading;
+      staged += 1;
+    }
+    return staged;
+  }
+
+  /**
+   * Place a specific person at a spot, mid-stride, at an authored angle. This is what the
+   * screenshot rig calls: an explicit cast, not a crowd left to its own random walk.
+   *
+   *   stride  leg separation, radians (the brief asks for 10-25 degrees = 0.17-0.44 rad)
+   *   torso   shoulders turned against the hips, radians (10-40 degrees = 0.17-0.70 rad)
+   *   arm     forward/back arm swing, radians; the other arm is always opposed
+   */
+  stagePose(person, { x, z, heading, stride = 0.3, torso = 0.3, arm = 0.36 }) {
+    if (!person) return null;
+    person.kind = WALK;
+    person.path = null;
+    person.market = null;
+    person.idle = 0;
+    person.speed = 0;
+    person.fleeTime = 0;
+    person.alive = true;
+    person.x = x;
+    person.z = z;
+    person.prevX = x;
+    person.prevZ = z;
+    person.heading = heading;
+    person.prevHeading = heading;
+    person.stageStride = stride;
+    person.stageTorso = torso;
+    person.stageArm = arm;
+    person.phase = 0;
+    person.position.x = x;
+    person.position.z = z;
+    return person;
+  }
+
+  /** Poses in degrees, so a claim can be stated the way the brief states it. */
+  stagePoseDegrees(person, spot) {
+    return this.stagePose(person, {
+      ...spot,
+      stride: ((spot.strideDeg ?? 18) * Math.PI) / 180,
+      torso: ((spot.torsoDeg ?? 24) * Math.PI) / 180,
+      arm: ((spot.armDeg ?? 22) * Math.PI) / 180,
+    });
+  }
+
+  /** Hand the first `count` alive people to the caller, so a shot can cast them explicitly. */
+  cast(count) {
+    return this.people.filter((person) => person.alive).slice(0, count);
+  }
+
   buildMeshes() {
     const shirtMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0.02 });
     const skinMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72, metalness: 0.02 });
@@ -492,6 +562,11 @@ export default class Pedestrians {
    * Write every person into their slots. The rig is a joint chain in body space:
    *   hips (bob + lean) -> torso (counter-rotate) -> shoulders -> arms (elbow bend)
    *   hips -> thighs (swing) -> shins (knee flex, so the heel lifts)
+   *
+   * A person may carry an authored pose (`stageStride`, `stageArm`, `stageTorso`, all in radians)
+   * which overrides the gait. The screenshot rig uses it to catch everyone mid-stride at a known
+   * angle instead of hoping a clock-driven sine happens to be at the right phase when the shutter
+   * opens.
    */
   apply(alpha) {
     const scratch = this.dummy;
@@ -508,8 +583,11 @@ export default class Pedestrians {
       const running = person.fleeTime > 0;
       const moving = person.kind === WALK && !person.market && person.speed > 0.01;
       const pace = person.speed * 3.4 * person.stride;
-      const swing = moving ? Math.sin(person.phase) : Math.sin(person.phase * 0.5) * 0.16;
-      const swingLag = moving ? Math.sin(person.phase + 1.1) : Math.sin(person.phase * 0.5 + 1.1) * 0.16;
+      // An authored stride wins over the clock: the shot rig needs a known leg angle, not whatever
+      // the sine happens to be at when the frame is taken.
+      const staged = person.stageStride !== undefined;
+      const swing = staged ? person.stageStride : moving ? Math.sin(person.phase) : Math.sin(person.phase * 0.5) * 0.16;
+      const swingLag = staged ? -person.stageStride * 0.62 : moving ? Math.sin(person.phase + 1.1) : Math.sin(person.phase * 0.5 + 1.1) * 0.16;
 
       // Hips: a two-per-stride bob, plus a lean into the direction of travel.
       const bob = moving ? Math.abs(Math.sin(person.phase)) * 0.035 * Math.min(1, pace) : 0;
@@ -541,6 +619,9 @@ export default class Pedestrians {
 
       // Torso hangs off the hips, leaning with the stride and counter-rotating the shoulders.
       const torsoRoll = leaning ? (heading > 0 ? -0.2 : 0.2) : 0;
+      // `stageTorso` is the authored shoulder turn: the torso twisted against the hips, which is
+      // what a person walking and looking across the street actually does.
+      const torsoTwist = person.stageTorso ?? (moving ? Math.sin(person.phase) * 0.09 : 0);
       this.setNode(
         nodes[1],
         nodes[0],
@@ -548,7 +629,7 @@ export default class Pedestrians {
         0,
         0,
         seated ? 0.06 : -lean,
-        moving ? Math.sin(person.phase) * 0.09 : 0,
+        torsoTwist,
         torsoRoll,
       );
       const torsoMesh = this.parts[person.variant].torso;
@@ -593,7 +674,7 @@ export default class Pedestrians {
       }
 
       // Arms: shoulder swing opposite the leg on the same side, elbow bends with the reach.
-      const armSwing = running ? swing * 0.95 : moving ? swing * 0.52 : 0;
+      const armSwing = person.stageArm ?? (running ? swing * 0.95 : moving ? swing * 0.52 : 0);
       const armLag = running ? swingLag * 0.95 : moving ? swingLag * 0.52 : 0;
       for (const side of [-1, 1]) {
         const shoulderSign = side > 0 ? 1 : -1;

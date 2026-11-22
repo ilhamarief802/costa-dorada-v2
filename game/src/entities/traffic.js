@@ -326,6 +326,55 @@ export default class Traffic {
     return car;
   }
 
+  /**
+   * Place a car at an exact spot on the road, facing an exact heading, with its brake lamps in a
+   * known state. `stage()` snaps to the nearest lane, which is right for a crowd but wrong for a
+   * frame: a shot needs a car where the shot says, not where the lane graph's nearest link is.
+   */
+  stageAt(index, { x, z, heading, speed = 0, brake = 0 }) {
+    const car = this.cars[index];
+    if (!car) return null;
+    car.link = car.link ?? null;
+    car.x = x;
+    car.z = z;
+    car.prevX = x;
+    car.prevZ = z;
+    car.heading = heading;
+    car.prevHeading = heading;
+    car.speed = speed;
+    car.limit = Math.max(car.limit, speed);
+    car.brake = brake;
+    car.brakeFade = brake ? 1 : 0;
+    car.staged = true;
+    car.driven = false;
+    car.occupied = false;
+    car.turnFrom = null;
+    car.turnT = 1;
+    car.bumpVx = 0;
+    car.bumpVz = 0;
+    car.headFade = 1;
+    return car;
+  }
+
+  /**
+   * Put the first `count` free cars on a line of spots, brake lamps in a known state, and report
+   * what was placed. The shot rig calls this so every frame has the same explicit cast.
+   */
+  stageCast(spots) {
+    const placed = [];
+    let cursor = 0;
+    for (const spot of spots) {
+      // Skip cars already driven or already cast by an earlier call.
+      while (cursor < this.cars.length && (this.cars[cursor].driven || this.cars[cursor].castAt)) cursor += 1;
+      if (cursor >= this.cars.length) break;
+      const car = this.stageAt(cursor, spot);
+      car.castAt = true;
+      cursor += 1;
+      if (car) placed.push(car);
+    }
+    return placed;
+  }
+
   /** Put one car on each approach to a point, for a frame that needs a full junction. */
   stageJunction(x, z, count = 8, radius = 90) {
     const placed = [];
@@ -581,8 +630,9 @@ export default class Traffic {
       const tail = braking ? 1 : 0.24;
       this.tint.setRGB(tail, tail * 0.12, tail * 0.06);
       shape.tail.setColorAt(index, this.tint);
-      // Headlights are on at all hours: warm white, dimmed a touch in daylight.
-      const headLevel = this.night ? 1 : 0.62;
+      // Headlights are on at all hours, and they read as on: a lamp that is merely brighter than
+      // the paint is indistinguishable from paint at 480 px.
+      const headLevel = this.night ? 1 : 0.95;
       shape.head.setColorAt(index, this.tint.setRGB(headLevel, headLevel * 0.94, headLevel * 0.8));
       if (shape.tail.instanceColor) shape.tail.instanceColor.needsUpdate = true;
       if (shape.head.instanceColor) shape.head.instanceColor.needsUpdate = true;
@@ -608,8 +658,8 @@ export default class Traffic {
         const fx = -Math.sin(heading);
         const fz = -Math.cos(heading);
         glow.head.position.set(x + fx * front, y + spec.lamps.headY, z + fz * front);
-        glow.head.material.opacity = this.night ? 0.72 : 0.16;
-        glow.head.scale.set(this.night ? 3.6 : 2.4, this.night ? 2.2 : 1.5, 1);
+        glow.head.material.opacity = this.night ? 0.72 : 0.34;
+        glow.head.scale.set(this.night ? 3.6 : 3.0, this.night ? 2.2 : 1.8, 1);
         glow.tail.position.set(x - fx * front, y + spec.lamps.tailY, z - fz * front);
         glow.tail.material.opacity = this.night ? 0.55 * (0.3 + tail) : 0.1 + 0.5 * (tail - 0.24);
         glow.tail.scale.set(this.night ? 2.4 : 1.7, this.night ? 1.4 : 1.0, 1);
