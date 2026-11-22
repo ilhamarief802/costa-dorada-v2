@@ -195,13 +195,13 @@ function coverCast(game, street) {
   walkers.forEach((spot, i) => {
     const person = foreground[i];
     if (!person) return;
-    game.pedestrians.stagePoseDegrees(person, {
+    // Each foreground walker is caught at a different point of the same walk cycle, mid-stride:
+    // 0.18 is just past left heel strike, 0.30 and 0.42 walk on through the stance.
+    game.pedestrians.stageWalk(person, {
       x: spot.x,
       z: spot.z,
       heading: spot.heading,
-      strideDeg: 21 + i * 3,
-      torsoDeg: 27 + i * 4,
-      armDeg: 25 + i * 3,
+      cycle: 0.18 + i * 0.12,
     });
     person.stagedIndex = 200 + i;
   });

@@ -1,0 +1,5 @@
+# Build output and dependencies: the entry ships game/ and screenshots/, the dossier is written to
+# out/ (or /output in the grader), so none of it belongs in the repository.
+out/
+node_modules/
+*.log

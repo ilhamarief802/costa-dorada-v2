@@ -7,7 +7,7 @@
 // the same silhouette and palette together.
 
 import { ART } from '../core/config.js';
-import { pedKit, PED_VARIANTS, PED_WAIST, PED_TORSO_TOP, PED_SHOULDER, THIGH_LEN, SHIN_LEN } from './pedkit.js';
+import { pedKit, PED_VARIANTS, PED_WAIST, PED_TORSO_TOP, PED_SHOULDER, THIGH_LEN, SHIN_LEN, walkCycle } from './pedkit.js';
 
 const COUNT = 80;
 const WALK = 0;
@@ -332,6 +332,22 @@ export default class Pedestrians {
       torso: ((spot.torsoDeg ?? 24) * Math.PI) / 180,
       arm: ((spot.armDeg ?? 22) * Math.PI) / 180,
     });
+  }
+
+  /**
+   * Pose a person at a stated point of the walk cycle (0 = left heel strike, 0.25 = left
+   * mid-stance, 0.5 = right heel strike). The stride, the shoulder turn and the arm swing all come
+   * out of `walkCycle`, so a frozen frame catches the body mid-stride with the parts of the cycle
+   * agreeing with each other rather than three independent angles that happen to be written down.
+   */
+  stageWalk(person, { x, z, heading, cycle = 0.18 }) {
+    const pose = walkCycle(cycle);
+    const staged = this.stagePose(person, { x, z, heading, stride: pose.stride, torso: pose.twist, arm: pose.armL });
+    if (staged) {
+      staged.walkPhase = pose.phase;
+      staged.stageKnee = pose.kneeL;
+    }
+    return staged;
   }
 
   /** Hand the first `count` alive people to the caller, so a shot can cast them explicitly. */
