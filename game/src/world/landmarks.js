@@ -33,6 +33,14 @@ export default class Landmarks {
     this.setNight(false);
   }
 
+  /** Mark a mesh as structure, i.e. something a facade part may be mounted on. */
+  solid(mesh, name) {
+    mesh.name = name;
+    mesh.userData.structural = true;
+    this.group.add(mesh);
+    return mesh;
+  }
+
   buildMirador() {
     const { x, z } = this.plan.landmarks.mirador;
     const baseY = CITY.padHeight;
@@ -40,57 +48,72 @@ export default class Landmarks {
     const stone = new THREE.MeshStandardMaterial({ color: 0xe9dcc0, roughness: 0.82, metalness: 0.02 });
     const accent = new THREE.MeshStandardMaterial({ color: 0x2f6d70, roughness: 0.35, metalness: 0.5 });
 
-    const plinth = new THREE.Mesh(new THREE.CylinderGeometry(13, 14, 2.2, 24), stone);
-    plinth.position.y = 1.1;
-    plinth.castShadow = true;
-    plinth.receiveShadow = true;
-    tower.add(plinth);
+    // One cursor, driven strictly upwards: every ring, deck and fin is placed on the *top* of the
+    // part below it. Stacking by eye is how a crown ends up 30 cm above its own shaft.
+    let stack = 0;
+    const ring = (radiusTop, radiusBottom, height, material, name, structural = true) => {
+      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radiusTop, radiusBottom, height, 24), material);
+      mesh.position.y = stack + height / 2;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.name = name;
+      if (structural) mesh.userData.structural = true;
+      tower.add(mesh);
+      stack += height;
+      return mesh;
+    };
 
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(8.2, 9.2, 66, 20), stone);
-    shaft.position.y = 2.2 + 33;
-    shaft.castShadow = true;
-    shaft.receiveShadow = true;
-    tower.add(shaft);
+    ring(13, 14, 2.2, stone, 'mirador-plinth');
+    ring(8.2, 9.2, 66, stone, 'mirador-shaft');
 
     this.glassMaterial = new THREE.MeshBasicMaterial({ color: 0x2a6b78, toneMapped: true });
     for (let i = 0; i < 4; i += 1) {
       const band = new THREE.Mesh(new THREE.CylinderGeometry(8.32, 8.32, 1.4, 20), this.glassMaterial);
       band.position.y = 14 + i * 13.5;
+      band.name = 'mirador-band';
       tower.add(band);
     }
 
-    const deck = new THREE.Mesh(new THREE.CylinderGeometry(10.2, 8.6, 2.4, 24), stone);
-    deck.position.y = 69.6;
-    deck.castShadow = true;
-    tower.add(deck);
-    const glassHall = new THREE.Mesh(new THREE.CylinderGeometry(7.4, 7.4, 3.6, 20), this.glassMaterial);
-    glassHall.position.y = 72;
-    tower.add(glassHall);
-    const crown = new THREE.Mesh(new THREE.CylinderGeometry(8.4, 9.1, 1.2, 24), accent);
-    crown.position.y = 74.3;
-    crown.castShadow = true;
-    tower.add(crown);
+    ring(10.2, 8.6, 2.4, stone, 'mirador-deck');
+    ring(7.4, 7.4, 3.6, this.glassMaterial, 'mirador-glass-hall', false);
+    const crown = ring(8.4, 9.1, 1.2, accent, 'mirador-crown');
+
+    // Fins stand on the crown's own top face, so their feet are inside it rather than just above.
+    const crownTop = stack;
     for (let i = 0; i < 8; i += 1) {
       const fin = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.2, 1.6), stone);
       const angle = (i / 8) * Math.PI * 2;
-      fin.position.set(Math.cos(angle) * 8.1, 76.6, Math.sin(angle) * 8.1);
+      fin.position.set(Math.cos(angle) * 8.1, crownTop - 1.3, Math.sin(angle) * 8.1);
       fin.rotation.y = -angle;
+      fin.name = 'mirador-fin';
+      fin.userData.structural = true;
       tower.add(fin);
     }
     const spire = new THREE.Mesh(new THREE.ConeGeometry(1.5, 15, 10), accent);
-    spire.position.y = 84.5;
+    // Cone geometry is centred, so its base sits at position.y - height/2: place the base on the
+    // crown, and the tip lands exactly 15 m above it.
+    const spireBase = crownTop;
+    spire.position.y = spireBase + 7.5;
     spire.castShadow = true;
+    spire.name = 'mirador-spire';
+    spire.userData.structural = true;
     tower.add(spire);
     const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 9, 6), new THREE.MeshStandardMaterial({ color: 0x2a2e30 }));
-    mast.position.y = 96;
+    // The mast rises out of the spire's tip, not out of thin air beside it.
+    const mastBase = spireBase + 13.4;
+    mast.position.y = mastBase + 4.5;
+    mast.name = 'mirador-mast';
+    mast.userData.structural = true;
     tower.add(mast);
 
     const beaconMaterial = new THREE.MeshBasicMaterial({ color: 0xffc16a, toneMapped: false });
     const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.34, 8, 6), beaconMaterial);
-    beacon.position.y = 100.5;
+    beacon.position.y = mastBase + 9;
+    beacon.name = 'mirador-beacon';
     tower.add(beacon);
     this.nightMaterials.push({ material: beaconMaterial, day: 0xffd9a8, night: 0xffb04a });
     this.nightMaterials.push({ material: this.glassMaterial, day: 0x2a6b78, night: 0x56c7cc });
+    void crown;
 
     const signTexture = this.assets.sign('EL MIRADOR', { background: '#101820', ink: '#f5debc', border: '#e0a55c' });
     const sign = new THREE.Mesh(
@@ -127,6 +150,7 @@ export default class Landmarks {
       section.position.y = y + 2.1;
       section.castShadow = true;
       section.receiveShadow = true;
+      section.userData.structural = true;
       lighthouse.add(section);
       y += 4.2;
     }
@@ -175,7 +199,7 @@ export default class Landmarks {
     const pole = new THREE.Mesh(new THREE.BoxGeometry(0.6, 10.5, 0.6), steel);
     pole.position.y = 5.25;
     pole.castShadow = true;
-    tower.add(pole);
+    tower.add(pole); pole.userData.structural = true;
     const panels = ['CINE LUNA', 'ESTRENO', 'MEDIANOCHE'];
     panels.forEach((text, index) => {
       const texture = this.assets.sign(text, { background: '#191020', ink: index === 0 ? '#ffe3a6' : '#ff9f5a', border: '#ff7a3c' });
@@ -202,7 +226,7 @@ export default class Landmarks {
       const post = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 8, 8), postMaterial);
       post.position.set(243, 4, z);
       post.castShadow = true;
-      this.group.add(post);
+      this.solid(post, 'marina-post');
     }
     const board = new THREE.Mesh(
       new THREE.BoxGeometry(0.3, 3.4, 15),
@@ -210,7 +234,7 @@ export default class Landmarks {
     );
     board.position.set(243, 7.4, 198);
     board.castShadow = true;
-    this.group.add(board);
+    this.solid(board, 'marina-board');
     const face = new THREE.Mesh(
       new THREE.PlaneGeometry(14.4, 3.0),
       new THREE.MeshBasicMaterial({ map: texture, toneMapped: false }),
@@ -228,13 +252,13 @@ export default class Landmarks {
     deck.position.set((from + to) / 2, y, z);
     deck.castShadow = true;
     deck.receiveShadow = true;
-    this.group.add(deck);
+    this.solid(deck, 'highway-deck');
     const railMaterial = new THREE.MeshStandardMaterial({ color: 0xc0b8aa, roughness: 0.75 });
     for (const side of [-1, 1]) {
       const rail = new THREE.Mesh(new THREE.BoxGeometry(length, 0.85, 0.28), railMaterial);
       rail.position.set((from + to) / 2, y + 0.8, z + side * 7);
       rail.castShadow = true;
-      this.group.add(rail);
+      this.solid(rail, 'highway-rail');
     }
     const pillarGeometry = new THREE.BoxGeometry(1.9, 9, 1.9);
     pillarGeometry.translate(0, 4.5, 0);
@@ -242,10 +266,11 @@ export default class Landmarks {
     for (let x = from + 12; x < to; x += 30) {
       pillars.push({ x, y: 0, z, scale: [1, 1, 1] });
     }
-    this.group.add(makeInstances(pillarGeometry, concrete, pillars, { castShadow: true, receiveShadow: true }));
+    this.solid(makeInstances(pillarGeometry, concrete, pillars, { castShadow: true, receiveShadow: true }), 'highway-pillars');
     const beamGeometry = new THREE.BoxGeometry(4.6, 0.6, 9.5);
-    this.group.add(
+    this.solid(
       makeInstances(beamGeometry, concrete, pillars.map((p) => ({ x: p.x, y: 8.7, z: p.z })), { castShadow: true, receiveShadow: false }),
+      'highway-beams',
     );
     for (const pillar of pillars) {
       this.plan.colliders.push({
@@ -288,7 +313,7 @@ export default class Landmarks {
     const mesh = new THREE.Mesh(mergeGeometries(parts), wood);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    this.group.add(mesh);
+    this.solid(mesh, 'pier-deck');
 
     for (const boat of this.plan.boats) {
       const boatGroup = new THREE.Group();
@@ -330,6 +355,8 @@ export default class Landmarks {
   }
 
   buildBladeSigns() {
+    // A blade sign is a bracket sign: it hangs off a post that stands on the pavement. Placing the
+    // panel at y = 5.4 on its own leaves a sign hovering in mid-air with nothing holding it.
     const specs = [
       { x: 23.15, z: 133, ry: Math.PI / 2, text: 'HOTEL SOL' },
       { x: 23.15, z: 96, ry: Math.PI / 2, text: 'BAR NEGRO' },
@@ -337,12 +364,23 @@ export default class Landmarks {
       { x: 38.85, z: 155, ry: -Math.PI / 2, text: 'MERCADO' },
     ];
     const steel = new THREE.MeshStandardMaterial({ color: 0x24282b, roughness: 0.6, metalness: 0.4 });
+    const PANEL_Y = 5.4;
     for (const spec of specs) {
+      const ground = this.plan.groundHeight(spec.x, spec.z);
+      // The post stands on the pavement, tall enough to reach just above the panel, and the panel
+      // is bolted to its top. The post is what the audit follows to the ground.
+      const postHeight = PANEL_Y - ground + 0.75;
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, postHeight, 8), steel);
+      post.position.set(spec.x - Math.sin(spec.ry) * 0.1, ground + postHeight / 2, spec.z - Math.cos(spec.ry) * 0.1);
+      post.name = 'blade-post';
+      post.castShadow = true;
+      this.solid(post, 'blade-post');
       const texture = this.assets.sign(spec.text, { background: '#120e16', ink: '#ffe0a8', border: '#ff8a44' });
       const material = new THREE.MeshBasicMaterial({ map: texture, toneMapped: false, side: THREE.DoubleSide });
       const panel = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 1.1), material);
-      panel.position.set(spec.x, 5.4, spec.z);
+      panel.position.set(spec.x, PANEL_Y, spec.z);
       panel.rotation.y = spec.ry;
+      panel.name = 'blade-panel';
       this.group.add(panel);
       this.nightMaterials.push({ material, day: 0xcac0b4, night: 0xffffff });
       const backing = new THREE.Mesh(new THREE.BoxGeometry(4.7, 1.35, 0.14), steel);
@@ -350,6 +388,7 @@ export default class Landmarks {
       backing.rotation.y = spec.ry;
       backing.translateZ(-0.08);
       backing.castShadow = true;
+      backing.name = 'blade-backing';
       this.group.add(backing);
       const glow = new THREE.Sprite(
         new THREE.SpriteMaterial({

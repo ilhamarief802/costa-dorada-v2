@@ -230,7 +230,17 @@ export default class Props {
       shelter.add(glass);
       const bench = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.1, 0.42), new THREE.MeshStandardMaterial({ color: 0x87603f, roughness: 0.8 }));
       bench.position.set(0, 0.5, -0.45);
+      bench.name = 'shelter-bench';
       shelter.add(bench);
+      // The bench stands on legs: floating a slab at knee height inside the shelter is a bench
+      // nobody can sit on.
+      for (const x of [-1.5, 1.5]) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.5, 0.36), frameMaterial);
+        leg.position.set(x, 0.25, -0.45);
+        leg.castShadow = true;
+        leg.name = 'shelter-bench-leg';
+        shelter.add(leg);
+      }
       shelter.position.set(spot.x, this.plan.groundHeight(spot.x, spot.z), spot.z);
       shelter.rotation.y = spot.x > 0 ? Math.PI / 2 : -Math.PI / 2;
       this.group.add(shelter);

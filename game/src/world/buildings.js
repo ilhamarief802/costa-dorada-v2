@@ -32,6 +32,15 @@ export default class Buildings {
     this.setNight(false);
   }
 
+  /** Add a part under the buildings group and remember what it is, so the floating-geometry
+   *  audit can tell a window from a wall without guessing at material colours. */
+  addNamed(name, mesh, structural = true) {
+    mesh.name = name;
+    mesh.userData.structural = structural;
+    this.group.add(mesh);
+    return mesh;
+  }
+
   /**
    * Balconies: a slab and a balustrade under a run of windows, at the same floor heights the
    * ledges use. They give the facades a second plane to cast shadows onto, which is what stops a
@@ -68,8 +77,8 @@ export default class Buildings {
       }
     }
     if (slabs.length) {
-      this.group.add(makeInstances(slabGeometry, stoneMaterial, slabs, { castShadow: true, receiveShadow: true }));
-      this.group.add(makeInstances(railGeometry, railMaterial, rails, { castShadow: true, receiveShadow: true }));
+      this.addNamed('balcony-slabs', makeInstances(slabGeometry, stoneMaterial, slabs, { castShadow: true, receiveShadow: true }), false);
+      this.addNamed('balcony-rails', makeInstances(railGeometry, railMaterial, rails, { castShadow: true, receiveShadow: true }), false);
     }
   }
 
@@ -114,9 +123,9 @@ export default class Buildings {
         boxes.push({ x: lot.x, y: top + 0.9, z: lot.z, scale: [lot.w * 0.34, 1.8, lot.d * 0.34] });
       }
     }
-    if (boxes.length) this.group.add(makeInstances(boxGeometry, ductMaterial, boxes, { castShadow: true, receiveShadow: true }));
-    if (tanks.length) this.group.add(makeInstances(tankGeometry, tankMaterial, tanks, { castShadow: true, receiveShadow: true }));
-    if (rails.length) this.group.add(makeInstances(new THREE.BoxGeometry(1, 0.9, 0.07), railMaterial, rails, { castShadow: true, receiveShadow: false }));
+    if (boxes.length) this.addNamed('roof-plant', makeInstances(boxGeometry, ductMaterial, boxes, { castShadow: true, receiveShadow: true }), false);
+    if (tanks.length) this.addNamed('roof-tanks', makeInstances(tankGeometry, tankMaterial, tanks, { castShadow: true, receiveShadow: true }), false);
+    if (rails.length) this.addNamed('parapet-rails', makeInstances(new THREE.BoxGeometry(1, 0.9, 0.07), railMaterial, rails, { castShadow: true, receiveShadow: false }), false);
   }
 
   buildMasses() {
@@ -148,7 +157,7 @@ export default class Buildings {
       }
     }
     const masses = makeInstances(geometry, material, placements, { castShadow: true, receiveShadow: true });
-    this.group.add(masses);
+    this.addNamed('masses', masses, true);
   }
 
   buildRoofs() {
@@ -189,12 +198,12 @@ export default class Buildings {
         details.push({ x: lot.x, y: top + 0.32, z: lot.z + lot.d * 0.3, scale: [lot.w * 0.28, 2.2, 0.5] });
       }
     }
-    this.group.add(makeInstances(geometry, material, placements, { castShadow: true, receiveShadow: true }));
+    this.addNamed('roof-caps', makeInstances(geometry, material, placements, { castShadow: true, receiveShadow: true }), true);
     if (details.length) {
-      this.group.add(makeInstances(detailGeometry, detailMaterial, details, { castShadow: true, receiveShadow: true }));
+      this.addNamed('roof-details', makeInstances(detailGeometry, detailMaterial, details, { castShadow: true, receiveShadow: true }), false);
     }
     if (tanks.length) {
-      this.group.add(makeInstances(tankGeometry, tankMaterial, tanks, { castShadow: true, receiveShadow: true }));
+      this.addNamed('roof-tanks-low', makeInstances(tankGeometry, tankMaterial, tanks, { castShadow: true, receiveShadow: true }), false);
     }
   }
 
@@ -218,7 +227,7 @@ export default class Buildings {
         placements.push({ x: lot.x - lot.w / 2 - 0.06, y, z: lot.z, scale: [0.2, 0.17, lot.d + 0.25], color: tint });
       }
     }
-    this.group.add(makeInstances(geometry, material, placements, { castShadow: false, receiveShadow: true }));
+    this.addNamed('ledges', makeInstances(geometry, material, placements, { castShadow: false, receiveShadow: true }), true);
   }
 
   buildWindows() {
@@ -339,9 +348,9 @@ export default class Buildings {
     this.windows.instanceMatrix.needsUpdate = true;
     this.windowFrames.instanceMatrix.needsUpdate = true;
     this.windowSills.instanceMatrix.needsUpdate = true;
-    this.group.add(this.windowFrames);
-    this.group.add(this.windows);
-    this.group.add(this.windowSills);
+    this.addNamed('window-frames', this.windowFrames, false);
+    this.addNamed('windows', this.windows, false);
+    this.addNamed('window-sills', this.windowSills, false);
   }
 
   buildShopfronts() {
@@ -384,7 +393,7 @@ export default class Buildings {
       this.shops.setMatrixAt(index, dummy.matrix);
     });
     this.shops.instanceMatrix.needsUpdate = true;
-    this.group.add(this.shops);
+    this.addNamed('shopfronts', this.shops, false);
   }
 
   buildAwnings() {
@@ -405,7 +414,7 @@ export default class Buildings {
       }
     }
     if (placements.length) {
-      this.group.add(makeInstances(geometry, material, placements, { castShadow: true, receiveShadow: true }));
+      this.addNamed('awnings', makeInstances(geometry, material, placements, { castShadow: true, receiveShadow: true }), false);
     }
   }
 
@@ -454,13 +463,13 @@ export default class Buildings {
       const mesh = new THREE.Mesh(mergeGeometries(parts), material);
       mesh.renderOrder = 1;
       this.bannerMaterials.push(material);
-      this.group.add(mesh);
+      this.addNamed('sign-panels', mesh, false);
     }
 
     if (backings.length) {
       const backingGeometry = new THREE.BoxGeometry(6.7, 1.9, 0.16);
       const backingMaterial = new THREE.MeshStandardMaterial({ color: 0x201a1c, roughness: 0.8 });
-      this.group.add(makeInstances(backingGeometry, backingMaterial, backings, { castShadow: true, receiveShadow: true }));
+      this.addNamed('sign-backings', makeInstances(backingGeometry, backingMaterial, backings, { castShadow: true, receiveShadow: true }), false);
     }
 
     if (glowPoints.length) {
