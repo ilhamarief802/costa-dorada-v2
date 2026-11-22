@@ -109,14 +109,19 @@ const report = await page.evaluate(({ selfTest }) => {
     return [...buckets.values()];
   };
 
+  // Celestial bodies hang in the sky by definition: the dome, the star field, the moon and the sun
+  // sprite are atmosphere, not matter, and auditing them for "support" is a category error.
+  const CELESTIAL = new Set(['moon', 'stars', 'sky']);
+  const isCelestial = (object, group, label) =>
+    CELESTIAL.has(group) || CELESTIAL.has(label) || label.includes('ShaderMaterial') || object.isSprite;
+
   g.scene.traverse((object) => {
     if (!object.isMesh) return;
     let owner = object.parent;
     while (owner && !owner.name && owner.parent) owner = owner.parent;
     const group = owner?.name || 'scene';
     const label = object.name || `${object.material?.type ?? object.type}#${object.material?.color?.getHexString?.() ?? ''}`;
-    // The sky dome is atmosphere, and the glowing points are light: neither is matter.
-    if (label.includes('ShaderMaterial')) return;
+    if (isCelestial(object, group, label)) return;
     if (!object.geometry.boundingBox) object.geometry.computeBoundingBox();
 
     // Structure is whatever the modules tagged as such, plus the highway and landmark masses in
