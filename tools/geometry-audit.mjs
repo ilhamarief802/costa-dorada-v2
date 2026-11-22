@@ -111,7 +111,7 @@ const report = await page.evaluate(({ selfTest }) => {
 
   // Celestial bodies hang in the sky by definition: the dome, the star field, the moon and the sun
   // sprite are atmosphere, not matter, and auditing them for "support" is a category error.
-  const CELESTIAL = new Set(['moon', 'stars', 'sky']);
+  const CELESTIAL = new Set(['moon', 'stars', 'sky', 'sun-disc', 'sun-glow', 'haze-band']);
   const isCelestial = (object, group, label) =>
     CELESTIAL.has(group) || CELESTIAL.has(label) || label.includes('ShaderMaterial') || object.isSprite;
 

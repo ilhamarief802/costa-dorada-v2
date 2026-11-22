@@ -178,7 +178,7 @@ export default class Traffic {
       });
     }
     this.buildMeshes();
-    this.blobSlots = this.cars.map(() => this.blobs.claim(0, -400, 0, 0.0001));
+    this.blobSlots = this.cars.map(() => [this.blobs.claim(0, -400, 0, 0.0001), this.blobs.claim(0, -400, 0, 0.0001)]);
     this.dummy = new THREE.Object3D();
     this.local = new THREE.Object3D();
     this.matrix = new THREE.Matrix4();
@@ -665,7 +665,20 @@ export default class Traffic {
         glow.tail.scale.set(this.night ? 2.4 : 1.7, this.night ? 1.4 : 1.0, 1);
       }
 
-      if (this.blobs) this.blobs.write(this.blobSlots[car.index], x, y + 0.012, z, car.shape === 'wagon' ? 5.0 : 4.6, 0.46);
+      // Contact shadow: a soft ellipse turned to the car's heading and stretched along it, plus a
+      // tighter, darker core so the four tyre patches are the darkest part of it. Both follow the
+      // body's own pose, so a car that is half-way through a turn drags its shadow round with it.
+      // The quad rides 7 cm clear of the ground: the asphalt sheet is drawn at 2-3 cm, so a
+      // shadow written *at* the ground height would be under the road and never drawn.
+      if (this.blobs) {
+        // The ellipse is deliberately wider than the body (a car is 1.9 m across, its ambient
+        // occlusion pool is ~4.4 m) so a rim of shade shows on the sunlit asphalt all round the
+        // tyres instead of being hidden under the sills, where nothing can see it.
+        const across = car.shape === 'wagon' ? 4.6 : 4.4;
+        const pair = this.blobSlots[car.index];
+        this.blobs.write(pair[0], x, y + 0.07, z, across, 1, heading, 1.34);
+        this.blobs.write(pair[1], x, y + 0.075, z, across * 0.6, 1, heading, 1.24);
+      }
     }
 
     for (const shape of Object.values(this.meshes)) {

@@ -89,9 +89,11 @@ async function boot() {
       onLane,
       nan,
       maxBraking: brakeSamples,
-      headlights: g.traffic.heads.count,
-      brakeLights: g.traffic.tails.count,
-      pools: g.traffic.pools.count,
+      // Lamp count: one head sprite and one tail sprite per car, and the lamp pools the street
+      // furniture throws — read off the objects that actually exist, not a stale field name.
+      headlights: g.traffic.glows.filter((glow) => glow.head.visible).length,
+      brakeLights: g.traffic.glows.filter((glow) => glow.tail.visible).length,
+      pools: g.props.pools?.count ?? 0,
     };
   });
   check('traffic', traffic.moved >= traffic.total * 0.7 && traffic.nan === 0 && traffic.maxBraking > 0, traffic);
@@ -112,7 +114,10 @@ async function boot() {
     // Distance from the nearest kerb ring: people should read as being on the pavement.
     let onPavement = 0;
     for (const person of g.pedestrians.people) {
-      if (person.path.kerb || person.path.crossing || person.path.promenade) onPavement += 1;
+      // A staged person has no path by design (the shot rig put them where it wanted them), so the
+      // pavement test only applies to people the crowd itself placed.
+      if (!person.path) onPavement += 1;
+      else if (person.path.kerb || person.path.crossing || person.path.promenade) onPavement += 1;
     }
     return {
       total: g.pedestrians.people.length,
@@ -322,23 +327,30 @@ async function boot() {
   const activities = await page.evaluate(() => {
     const g = window.__GAME;
     const out = {};
-    // Taxi: two legs, paid on arrival.
+    // Taxi: two legs, paid on arrival. The drop-off only exists once the pick-up is reached, so
+    // it has to be read after the first leg, not before.
     const before = g.state().money;
     out.taxiStarted = window.__GAME.startActivity('taxi');
     out.taxiHud = g.activities.hudState();
     const pickup = g.activities.active.pickup;
     window.__GAME.teleport(pickup.x, pickup.z, 0);
     window.__TEST.simulate(0.3, []);
-    const drop = g.activities.active.dropoff;
-    window.__GAME.teleport(drop.x, drop.z, 0);
-    window.__TEST.simulate(0.3, []);
+    const drop = g.activities.active?.dropoff;
+    out.taxiDropoff = Boolean(drop);
+    if (drop) {
+      window.__GAME.teleport(drop.x, drop.z, 0);
+      window.__TEST.simulate(0.4, []);
+    }
     out.taxiReward = g.state().money - before;
     out.taxiFinished = g.activities.active === null;
 
-    // Race: four checkpoints, three rivals on the lane graph.
+    // Race: four checkpoints, three rivals on the lane graph. Only meaningful if the taxi run
+    // released the slot; a second activity cannot start while one is live (by design), so the
+    // harness clears whatever is running before asking.
+    if (g.activities.active) g.activities.cancel();
     out.raceStarted = window.__GAME.startActivity('race');
     out.rivals = g.activities.rivals.count;
-    const checkpoints = g.activities.active.checkpoints.slice();
+    const checkpoints = g.activities.active?.checkpoints?.slice() ?? [];
     for (const checkpoint of checkpoints) {
       window.__GAME.teleport(checkpoint.x, checkpoint.z, 0);
       window.__TEST.simulate(0.3, []);

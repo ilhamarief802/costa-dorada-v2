@@ -69,20 +69,32 @@ export default class Props {
     });
     this.group.add(new THREE.Points(haloGeometry, this.haloMaterial));
 
-    const poolGeometry = new THREE.CircleGeometry(3.6, 18);
+    // The pool each lamp throws on the pavement: a ground quad with the radial glow ramp, so the
+    // falloff is soft and elliptical rather than a hard disc with a visible rim. Additive, and
+    // scaled in X/Z to the lamp's reach, so it lies *on* the ground and never rises up the wall.
+    const poolGeometry = new THREE.PlaneGeometry(1, 1);
     poolGeometry.rotateX(-Math.PI / 2);
     this.poolMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffb56a,
+      map: this.assets.glow(),
+      color: 0xffc07a,
       transparent: true,
       opacity: 0,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       toneMapped: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3,
     });
-    const pools = makeInstances(poolGeometry, this.poolMaterial, placements.map((p) => ({ x: p.x, y: p.y + 0.035, z: p.z })), {
-      receiveShadow: false,
-    });
-    pools.renderOrder = 2;
+    const pools = makeInstances(poolGeometry, this.poolMaterial, placements.map((p) => ({
+      x: p.x,
+      y: p.y + 0.045,
+      z: p.z,
+      scale: [9.5, 1, 7.4],
+    })), { receiveShadow: false });
+    pools.renderOrder = 3;
+    pools.name = 'lamp-pools';
+    this.pools = pools;
     this.group.add(pools);
   }
 
@@ -282,8 +294,11 @@ export default class Props {
 
   setNight(night) {
     this.globeMaterial.color.set(night ? 0xffc271 : 0xf4e4c2);
-    this.haloMaterial.opacity = night ? 1 : 0.06;
-    this.haloMaterial.size = night ? 4.2 : 1.5;
-    this.poolMaterial.opacity = night ? 0.32 : 0;
+    this.haloMaterial.opacity = night ? 0.9 : 0.04;
+    this.haloMaterial.size = night ? 3.6 : 1.4;
+    // A faint pool, not a spotlight: enough that the lamp has a footprint on the pavement and the
+    // pavement between two lamps is visibly darker. The mask handles the falloff, so the opacity
+    // can be low without the edge ever showing.
+    this.poolMaterial.opacity = night ? 0.22 : 0;
   }
 }

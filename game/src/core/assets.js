@@ -44,6 +44,11 @@ export default class Assets {
     return texture;
   }
 
+  /**
+   * Asphalt, twice: a base grain for the carriageway and a second, coarser wear sheet laid over
+   * the same quads at a different repeat, so the road never tiles visibly. Both are painted from
+   * the seed, so a seed reproduces the same street down to the gravel.
+   */
   asphalt() {
     return this.texture('asphalt', (ctx, size) => {
       noiseFill(ctx, size, '#4b4850', 0.09, this.rng.fork(`asphalt-${size}`));
@@ -55,6 +60,62 @@ export default class Assets {
       }
       ctx.globalAlpha = 1;
     }, { repeat: 1 });
+  }
+
+  /** The asphalt grain: fine aggregate speckle, a few shallow cracks, a patch of repair tar. */
+  grain() {
+    return this.texture('grain', (ctx, size) => {
+      noiseFill(ctx, size, '#413f47', 0.22, this.rng.fork('grain-fine'));
+      // Aggregate: light chips of exposed stone scattered over the binder.
+      for (let i = 0; i < 700; i += 1) {
+        const r = this.rng.range(0.5, 1.7);
+        ctx.fillStyle = this.rng.chance(0.5) ? 'rgba(150,146,140,0.32)' : 'rgba(24,23,27,0.34)';
+        ctx.beginPath();
+        ctx.arc(this.rng.range(0, size), this.rng.range(0, size), r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Cracks: a few wandering polylines, thin and dark.
+      ctx.strokeStyle = 'rgba(20,19,23,0.55)';
+      for (let c = 0; c < 5; c += 1) {
+        ctx.lineWidth = this.rng.range(0.6, 1.4);
+        ctx.beginPath();
+        let x = this.rng.range(0, size);
+        let y = this.rng.range(0, size);
+        ctx.moveTo(x, y);
+        for (let s = 0; s < 7; s += 1) {
+          x += this.rng.range(-22, 22);
+          y += this.rng.range(-22, 22);
+          ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      // A repair patch: darker, with a soft edge, so the surface is not one flat sheet.
+      const patch = ctx.createRadialGradient(size * 0.7, size * 0.3, 2, size * 0.7, size * 0.3, size * 0.22);
+      patch.addColorStop(0, 'rgba(28,27,31,0.45)');
+      patch.addColorStop(1, 'rgba(28,27,31,0)');
+      ctx.fillStyle = patch;
+      ctx.fillRect(0, 0, size, size);
+    }, { repeat: 1 });
+  }
+
+  /** A wet-sheen mask for the road at night: soft puddles with hard-ish rims. */
+  wetness() {
+    return this.texture('wetness', (ctx, size) => {
+      noiseFill(ctx, size, '#000000', 0.02, this.rng.fork('wet-base'));
+      for (let i = 0; i < 14; i += 1) {
+        const x = this.rng.range(20, size - 20);
+        const y = this.rng.range(20, size - 20);
+        const r = this.rng.range(18, 60);
+        const puddle = ctx.createRadialGradient(x, y, r * 0.15, x, y, r);
+        puddle.addColorStop(0, 'rgba(255,255,255,0.9)');
+        puddle.addColorStop(0.7, 'rgba(255,255,255,0.4)');
+        puddle.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = puddle;
+        ctx.beginPath();
+        ctx.ellipse(x, y, r * this.rng.range(0.8, 1.5), r, this.rng.range(0, 3.14), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }, { repeat: 1, srgb: false });
   }
 
   pavement() {

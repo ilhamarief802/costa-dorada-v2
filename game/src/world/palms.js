@@ -8,22 +8,24 @@ const FROND_GREENS = [0x3f6b32, 0x4d7a3a, 0x355f2c, 0x577f3d, 0x2f5527];
 
 function makeTrunk() {
   const parts = [];
-  const segments = 6;
+  // Five segments of a six-sided cylinder, not eight: at 480 px a palm trunk is nine pixels
+  // wide, and the extra ring costs more than the whole crown. The silhouette is the taper.
+  const segments = 5;
   let x = 0;
   let y = 0;
   for (let i = 0; i < segments; i += 1) {
-    const height = 1.05 - i * 0.05;
-    const radius = 0.27 - i * 0.025;
-    const geometry = new THREE.CylinderGeometry(radius * 0.86, radius, height, 7);
+    const height = 1.26 - i * 0.06;
+    const radius = 0.28 - i * 0.032;
+    const geometry = new THREE.CylinderGeometry(radius * 0.86, radius, height, 6, 1);
     const lean = 0.16 * Math.sin(i * 0.7);
     geometry.rotateZ(lean * 0.25);
     geometry.translate(x, y + height / 2, 0);
     x += lean * 0.5;
     y += height * 0.96;
     parts.push({ geometry });
-    // Ring scars where old fronds fell.
-    if (i > 0) {
-      const ring = new THREE.CylinderGeometry(radius + 0.02, radius + 0.02, 0.06, 7);
+    // One ring scar where the old fronds fell, not one per segment.
+    if (i === 2) {
+      const ring = new THREE.CylinderGeometry(radius + 0.025, radius + 0.025, 0.07, 6);
       ring.translate(x, y - height * 0.5, 0);
       parts.push({ geometry: ring, color: 0x5e4a36 });
     }
@@ -35,7 +37,8 @@ function makeFrond(angle, length, droop, color) {
   const positions = [];
   const uvs = [];
   const colors = [];
-  const sides = 6;
+  // Four spans up the frond: enough for the droop to curve, half the triangles of six.
+  const sides = 4;
   const tint = new THREE.Color(color);
   let prev = null;
   for (let s = 0; s <= sides; s += 1) {

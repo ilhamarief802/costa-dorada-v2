@@ -2,17 +2,23 @@
 //
 // A shot freezes the simulation, places the camera exactly, and then *casts* the street: every car
 // and every person in the frame is put at a stated spot, facing a stated way, with a stated pose.
-// Nothing here is left to the crowd's own random walk or to where the lane graph happens to put a
-// car, because a frame that has to show six cars and ten people at 480 px cannot rely on chance.
+// Nothing is left to the crowd's own random walk or to where the lane graph happens to put a car,
+// because a frame that has to show eight cars and fourteen people cannot rely on chance.
 //
-// The cast is described in the road's own terms:
-//   - cars sit on the carriageways of the boulevard the camera is looking down, at stated depths,
-//     with their brake lamps in a stated state;
-//   - people walk the pavements on both sides, mid-stride, legs 10-25 degrees apart, arms opposed,
-//     shoulders turned 10-40 degrees against the hips.
+// The cast is stated in the *street's* terms, never the camera's:
+//
+//   - a street is a road on the plan — a centre line, an axis, and the kerb lines either side of
+//     it. A car is at [lane, along] where `lane` is the signed distance from the centre line and
+//     `along` is metres down the street from a stated cross-street; a person is at [kerb, along]
+//     on the pavement, in the same metres. This is what keeps a wheel on the asphalt and a shoe on
+//     the flagstones: placing relative to the camera instead put every near-lane car on the
+//     pavement (x 22 on a road that starts at 23) and half the crowd in the middle of the road.
+//
+//   - `facing` is 'away' (driving off down the lens), 'towards' (oncoming), or a bearing.
 //
 // tools/project.mjs measures the result and prints every screen position and every count, so the
-// claims "at least 6 cars, at least 10 people, two brake lights" are verified rather than asserted.
+// claims "eight cars in frame, fourteen people, two brake lights" are verified rather than
+// asserted.
 
 import { SHOT_TIMES, WANTED } from './core/config.js';
 
@@ -20,11 +26,48 @@ export const SHOT_NAMES = ['cover', 'night', 'drive', 'chase', 'mission'];
 /** Authoring-only views: a single asset framed against the sky, no HUD. Not entry screenshots. */
 export const ASSET_VIEWS = ['car', 'crowd'];
 
-/** The verge the camera stands on, and the carriageway it looks down. */
-const LANE_A = 28.4;
-const LANE_B = 33.6;
-const PAVE_W = 21.2;
-const PAVE_E = 40.8;
+/**
+ * The boulevard every street-level frame looks down: the north-south road at x = 31, sixteen
+ * metres of asphalt between the kerbs at x = 23 and x = 39. Four lanes: two away from the lens
+ * (x 25 and 29) and two oncoming (x 33 and 37). The frames stage cars in the inner pair, leaving
+ * the kerb lanes for the hero coupe and the parked cars the plan already puts there.
+ */
+const BOULEVARD = {
+  axis: 'z',
+  centre: 31,
+  from: 158,
+  kerb: 8,
+  awayLane: 29,
+  towardsLane: 35,
+  nearPavement: 21.3,
+  farPavement: 40.7,
+};
+
+/** The marina approach: the east-west road at z = 170 that runs in from the boulevard. */
+const MARINA = {
+  axis: 'x',
+  centre: 170,
+  from: 214,
+  kerb: 8,
+  awayLane: 166,
+  towardsLane: 174,
+  nearPavement: 178.7,
+  farPavement: 161.3,
+};
+
+function streetPoint(street, lateral, along) {
+  if (street.axis === 'z') return { x: street.centre + lateral, z: street.from - along };
+  return { x: street.from + along, z: street.centre + lateral };
+}
+
+/** A car's heading on a street: 'away' drives off down the lens, 'towards' comes back up it. */
+function streetHeading(street, facing) {
+  const away = street.axis === 'z' ? 0 : -Math.PI / 2;
+  const towards = street.axis === 'z' ? Math.PI : Math.PI / 2;
+  if (facing === 'away') return away;
+  if (facing === 'towards') return towards;
+  return (facing * Math.PI) / 180;
+}
 
 function hudState(game) {
   const actor = game.driving ? (game.stolen ?? game.vehicle ?? game.player) : game.player;
@@ -51,57 +94,34 @@ function hudState(game) {
 }
 
 /**
- * The camera's own frame, so a cast can be stated in the terms a frame is composed in: `depth`
- * metres in front of the lens, `lateral` metres to its right. A shot staged this way cannot end
- * up behind the camera, which is what happens when a street's world coordinates are guessed.
+ * Cast the traffic of a street: `spots` are [lateral, along, facing, braking] in the street's own
+ * metres, where `lateral` is signed distance from the centre line.
  */
-function cameraFrame(game) {
-  const camera = game.camera;
-  camera.updateMatrixWorld();
-  const forward = new THREE.Vector3();
-  camera.getWorldDirection(forward);
-  // Flatten the look onto the ground plane: cars and people are placed at street level, so the
-  // ground-plane basis is what matters, and it keeps the two sides of the street parallel.
-  const flat = new THREE.Vector3(forward.x, 0, forward.z).normalize();
-  const right = new THREE.Vector3(-flat.z, 0, flat.x);
-  const origin = new THREE.Vector3(camera.position.x, 0, camera.position.z);
-  const place = (depth, lateral) => ({
-    x: origin.x + flat.x * depth + right.x * lateral,
-    z: origin.z + flat.z * depth + right.z * lateral,
-  });
-  // A car's own forward axis is (-sin h, -cos h), so a heading that makes it drive *away* down the
-  // lens is atan2(-flat.x, -flat.z), and the heading that makes it drive back toward the camera is
-  // the opposite. Getting these the wrong way round puts every "braking" car's brake lamps on the
-  // far side of its body, where nothing can see them.
-  const away = Math.atan2(-flat.x, -flat.z);
-  const towards = Math.atan2(flat.x, flat.z);
-  return { place, towards, away, flat, right, origin };
-}
-
-/**
- * Cast the cars of the frame the camera is actually looking at: `spots` are [depth, lateral,
- * facing, braking] in the camera's own frame, where facing is 'away' (driving off), 'towards'
- * (oncoming) or a bearing in degrees.
- */
-function castCars(game, frame, spots) {
+function castCars(game, street, spots) {
   return game.traffic.stageCast(
-    spots.map(([depth, lateral, facing, braking]) => {
-      const at = frame.place(depth, lateral);
-      const heading = facing === 'away' ? frame.away : facing === 'towards' ? frame.towards : (facing * Math.PI) / 180;
-      return { x: at.x, z: at.z, heading, speed: braking ? 0 : 7.5, brake: braking ? 1 : 0 };
+    spots.map(([lateral, along, facing, braking]) => {
+      const at = streetPoint(street, lateral, along);
+      return {
+        x: at.x,
+        z: at.z,
+        heading: streetHeading(street, facing),
+        speed: braking ? 0 : 7.5,
+        brake: braking ? 1 : 0,
+      };
     }),
   );
 }
 
 /**
- * Cast people along both pavements of the street the camera looks down.
+ * Cast people along the pavements of a street, mid-stride.
  *
- * Each person is posed mid-stride with a leg split, an opposed arm swing and a shoulder turn, all
- * inside the ranges the brief states (10-25 degrees legs, 10-40 degrees torso, arms opposed). The
- * angles advance by the golden angle, so no two people on the same pavement strike the same pose.
+ * Each person is posed with a leg split, an opposed arm swing and a shoulder turn inside the ranges
+ * the brief states (10-25 degree legs, 10-40 degree torso, arms opposed). The angles advance by
+ * the golden angle, so no two people on the same pavement strike the same pose. `crossing` puts a
+ * pair mid-way across the carriageway at the junction, on the zebra.
  */
-function castPeople(game, frame, { near, far, count, left = -6.6, right = 6.6, faceCamera = false }) {
-  const cast = game.pedestrians.cast(count);
+function castPeople(game, street, { near, far, count, crossing = 0 }) {
+  const cast = game.pedestrians.cast(count + crossing);
   for (let i = 0; i < count; i += 1) {
     const person = cast[i % cast.length];
     // Alternate pavements, then work down the block in pairs so the near people do not form a wall
@@ -110,23 +130,55 @@ function castPeople(game, frame, { near, far, count, left = -6.6, right = 6.6, f
     const rank = Math.floor(i / 2);
     const pairs = Math.ceil(count / 2);
     const t = (rank + 0.5) / pairs;
-    const depth = near + (far - near) * t;
-    const sway = ((i % 5) - 2) * 0.5;
-    const at = frame.place(depth + sway * 0.6, (onLeft ? left : right) + sway * 0.3);
+    const along = near + (far - near) * t + ((i % 5) - 2) * 0.34;
+    const lateral = (onLeft ? -1 : 1) * (street.kerb + 1.3 + ((i % 3) * 0.42));
+    const at = streetPoint(street, lateral, along);
     // People on a pavement face across the street, or up it, or toward the lens; never all alike.
-    const along = i % 4 === 0 ? (onLeft ? frame.towards : frame.away) : (onLeft ? Math.PI / 2 : -Math.PI / 2);
-    const facingBase = faceCamera ? Math.atan2(frame.origin.x - at.x, frame.origin.z - at.z) : along;
+    const along_ = streetHeading(street, onLeft ? 'towards' : 'away');
+    const heading = i % 4 === 0 ? along_ : (onLeft ? Math.PI / 2 : -Math.PI / 2) + streetHeading(street, 'away') * 0;
     game.pedestrians.stagePoseDegrees(person, {
       x: at.x,
       z: at.z,
-      heading: facingBase + (((i % 3) - 1) * 0.3),
+      heading: heading + (((i % 3) - 1) * 0.3),
       strideDeg: 14 + ((i * 7) % 12),
       torsoDeg: 16 + ((i * 11) % 24),
       armDeg: 18 + ((i * 5) % 16),
     });
     person.stagedIndex = i;
   }
-  return count;
+  // Two of them mid-crossing, on the zebra at the junction, legs apart and bodies turned 20-40
+  // degrees off the lens: a street with nobody crossing it reads as a diorama.
+  for (let n = 0; n < crossing; n += 1) {
+    const person = cast[(count + n) % cast.length];
+    const lateral = -6.4 + n * 12.2 + (n % 2 ? 1.4 : -1.1);
+    const along = near + (far - near) * (n === 0 ? 0.58 : 0.74);
+    const at = streetPoint(street, lateral, along);
+    game.pedestrians.stagePoseDegrees(person, {
+      x: at.x,
+      z: at.z,
+      heading: streetHeading(street, n % 2 ? 'away' : 'towards') + (n % 2 ? 0.5 : -0.42),
+      strideDeg: 24,
+      torsoDeg: 32 + n * 5,
+      armDeg: 30,
+    });
+    person.stagedIndex = count + n;
+  }
+  return count + crossing;
+}
+
+/** The pavement the camera stands on, and the lane the hero is pulled up in. */
+function coverCast(game, street) {
+  castCars(game, street, [
+    // Near lane drives away from the lens (rear and brake lamps toward it); the far lane is
+    // oncoming, so its headlights face the camera. The first pair is 12-18 m out, not 5: a car
+    // five metres from the lens at 54 degrees is a smear of stretched polygons across the frame.
+    [-2, 15, 'away', 1], [4, 12, 'towards', 0],
+    [-2, 23, 'away', 1], [4, 21, 'towards', 0],
+    [-2, 32, 'away', 0], [4, 31, 'towards', 0],
+    [-2, 42, 'away', 0], [4, 41, 'towards', 0],
+    [-2, 53, 'away', 0], [4, 52, 'towards', 0],
+  ]);
+  castPeople(game, street, { near: 6, far: 55, count: 14, crossing: 2 });
 }
 
 export function applyShot(game, requested) {
@@ -160,6 +212,7 @@ export function applyShot(game, requested) {
     person.stageStride = undefined;
     person.stageTorso = undefined;
     person.stageArm = undefined;
+    person.stagedIndex = undefined;
   }
 
   game.elapsed = 6.0;
@@ -185,42 +238,44 @@ export function applyShot(game, requested) {
     game.follow.setPose({ x: 33.2, y: 1.28, z: 106.4 }, { x: 35.4, y: 0.98, z: 98.0 }, 52);
     game.hud.setPrompt('');
   } else if (name === 'drive') {
-    // Behind the coupe at speed, the boulevard running away to the junction.
+    // Behind the coupe at speed, the boulevard running away to the junction. The coupe is in the
+    // inner lane, not on the centre line: a car straddling the paintwork reads as a bug.
     game.driving = true;
     game.timeOfDay = SHOT_TIMES.drive;
     game.weather.setHour(game.timeOfDay, true);
     game.player.setVisible(false);
-    game.vehicle.poseParked(31.0, 130, 0);
+    game.vehicle.poseParked(BOULEVARD.centre - 2, 130, 0);
     game.vehicle.driven = true;
     game.vehicle.setNight(game.weather.night);
-    game.follow.setPose({ x: 31.5, y: 2.9, z: 141 }, { x: 31.0, y: 1.2, z: 112 }, 62);
+    game.follow.setPose({ x: BOULEVARD.centre - 1.4, y: 2.6, z: 141.5 }, { x: BOULEVARD.centre - 2, y: 1.15, z: 108 }, 60);
     // Four lanes of traffic ahead of the coupe: two abreast, two queued at the lights.
-    castCars(game, cameraFrame(game), [
-      [10, -2.4, 'away', 0], [13, 2.4, 'towards', 0],
-      [20, -2.4, 'away', 0], [23, 2.4, 'towards', 1],
-      [30, -2.4, 'away', 0], [34, 2.4, 'towards', 0],
-      [42, -2.4, 'away', 1], [46, 2.4, 'towards', 0],
-      [56, -2.4, 'away', 0], [60, 2.4, 'towards', 0],
+    castCars(game, BOULEVARD, [
+      [-2, 10, 'away', 0], [4, 13, 'towards', 0],
+      [-2, 20, 'away', 0], [4, 23, 'towards', 1],
+      [-2, 30, 'away', 0], [4, 34, 'towards', 0],
+      [-2, 42, 'away', 1], [4, 46, 'towards', 0],
+      [-2, 56, 'away', 0], [4, 60, 'towards', 0],
     ]);
-    castPeople(game, cameraFrame(game), { near: 7, far: 46, count: 12, left: -9.0, right: 9.0 });
+    castPeople(game, BOULEVARD, { near: 8, far: 52, count: 12, crossing: 2 });
     game.hud.setPrompt('');
   } else if (name === 'chase') {
-    // Three stars: the coupe nose-to-nose with three cruisers on the boulevard.
+    // Three stars: the coupe nose-to-nose with three cruisers on the boulevard, the roadblock
+    // across both lanes and the queue behind it with the brakes on.
     game.police.heat = WANTED.thresholds[3] + 0.4;
     game.police.stars = 3;
     game.timeOfDay = 21.55;
     game.weather.setHour(game.timeOfDay, true);
     game.player.setVisible(true);
-    game.player.reset(31.6, 122.0, Math.PI * 0.5);
+    game.player.reset(BOULEVARD.nearPavement + 1.4, 122.0, Math.PI * 0.5);
     game.player.poseIdle(Math.PI * 0.5, 0.4);
-    game.vehicle.poseParked(26.4, 128.5, 0);
+    game.vehicle.poseParked(BOULEVARD.centre - 4.6, 126.0, 0.06);
     game.vehicle.driven = false;
     game.vehicle.setNight(true);
     game.police.units.length = 0;
     const block = [
-      { x: 27.2, z: 106.0, heading: 0 },
-      { x: 34.8, z: 101.0, heading: Math.PI * 0.06 },
-      { x: 31.0, z: 118.0, heading: Math.PI },
+      { x: BOULEVARD.centre - 4.2, z: 110.0, heading: Math.PI * 0.32 },
+      { x: BOULEVARD.centre + 4.6, z: 105.0, heading: Math.PI * 0.68 },
+      { x: BOULEVARD.centre - 0.6, z: 118.0, heading: Math.PI },
     ];
     for (const spot of block) {
       const unit = game.police.spawnUnit(game.player, false);
@@ -235,66 +290,61 @@ export function applyShot(game, requested) {
       unit.parked = true;
     }
     game.police.officers.length = 0;
-    game.follow.setPose({ x: 24.4, y: 2.35, z: 140.5 }, { x: 30.0, y: 1.35, z: 112 }, 58);
+    game.follow.setPose({ x: BOULEVARD.centre - 7.2, y: 2.45, z: 139.0 }, { x: BOULEVARD.centre - 1.0, y: 1.3, z: 110 }, 56);
     // The queue behind the roadblock: stopped at the lights, brake lamps lit.
-    castCars(game, cameraFrame(game), [
-      [9, -2.6, 'away', 1], [12, 2.6, 'towards', 0],
-      [17, -2.6, 'away', 1], [21, 2.6, 'towards', 0],
-      [27, -2.6, 'away', 0], [31, 2.6, 'towards', 0],
-      [38, -2.6, 'away', 0], [43, 2.6, 'towards', 0],
+    castCars(game, BOULEVARD, [
+      [-2, 20, 'away', 1], [4, 23, 'towards', 0],
+      [-2, 28, 'away', 1], [4, 32, 'towards', 0],
+      [-2, 36, 'away', 0], [4, 41, 'towards', 0],
+      [-2, 46, 'away', 0], [4, 51, 'towards', 0],
     ]);
-    castPeople(game, cameraFrame(game), { near: 6, far: 44, count: 14, left: -9.4, right: 9.4 });
+    castPeople(game, BOULEVARD, { near: 8, far: 50, count: 12, crossing: 2 });
     game.hud.setPrompt('');
   } else if (name === 'mission') {
-    // The marina lot: the coupe, the crew, the tower in the haze. The lot is the marina approach,
-    // which runs north along x = 236 from the coastal boulevard.
+    // The marina lot: the coupe, the crew, the tower in the haze. The approach runs east-west in
+    // from the boulevard, so the cast is staged against that road, not against the lens.
     game.timeOfDay = 18.15;
     game.weather.setHour(game.timeOfDay, true);
     game.driving = false;
     game.player.setVisible(true);
-    const spot = { x: 232, z: 168 };
-    game.player.reset(spot.x - 1.6, spot.z + 5.0, Math.PI * 0.94);
-    game.player.poseIdle(Math.PI * 0.94, 0.5);
+    game.player.reset(MARINA.from - 6.0, MARINA.centre + 5.4, -Math.PI * 0.2);
+    game.player.poseIdle(-Math.PI * 0.2, 0.5);
     game.missions.start(3);
-    game.vehicle.poseParked(spot.x - 8.5, spot.z + 3.0, Math.PI * 0.5);
+    game.vehicle.poseParked(MARINA.from - 4.4, MARINA.centre + 2.6, Math.PI * 0.5);
     game.vehicle.driven = false;
     game.vehicle.setNight(false);
-    game.follow.setPose({ x: spot.x - 15.0, y: 2.55, z: spot.z + 14.5 }, { x: spot.x - 2.0, y: 1.7, z: spot.z + 1.0 }, 54);
+    game.follow.setPose({ x: MARINA.from - 13.0, y: 2.5, z: MARINA.centre + 13.4 }, { x: MARINA.from - 1.0, y: 1.55, z: MARINA.centre + 1.2 }, 52);
     // The approach carries the traffic; the lot itself is where the crew stand.
-    castCars(game, cameraFrame(game), [
-      [12, -3.0, 'away', 0], [15, 3.0, 'towards', 0],
-      [21, -3.0, 'away', 1], [25, 3.0, 'towards', 0],
-      [32, -3.0, 'away', 0], [36, 3.0, 'towards', 1],
-      [44, -3.0, 'away', 0], [48, 3.0, 'towards', 0],
+    castCars(game, MARINA, [
+      [-4, 12, 'away', 0], [4, 15, 'towards', 0],
+      [-4, 21, 'away', 1], [4, 26, 'towards', 0],
+      [-4, 33, 'away', 0], [4, 37, 'towards', 1],
+      [-4, 45, 'away', 0], [4, 49, 'towards', 0],
     ]);
-    castPeople(game, cameraFrame(game), { near: 8, far: 40, count: 12, left: -8.6, right: 8.6 });
+    castPeople(game, MARINA, { near: 7, far: 44, count: 12, crossing: 1 });
     game.hud.setPrompt('');
   } else {
     // Cover and night share the frame: the hero coupe at the kerb, the boulevard and its junction
-    // beyond, the marina off to the right.
+    // beyond, the marina off to the right. The kerb line is x = 23, so the coupe sits in the kerb
+    // lane at x 24.2 — a car parked in the middle of a travelling lane is the first thing a viewer
+    // calls a bug — and the player stands on the pavement at x 21.0, between the couple and the
+    // camera, reading as the person who owns the car.
     game.driving = false;
     game.timeOfDay = SHOT_TIMES[name];
     game.weather.setHour(game.timeOfDay, true);
     game.player.setVisible(true);
-    game.player.reset(28.2, 145.0, 0.12);
-    game.player.poseIdle(0.12, 0.7);
-    game.vehicle.poseParked(25.4, 143.5, 0.02);
+    game.player.reset(20.9, 145.6, 0.14);
+    game.player.poseIdle(0.14, 0.7);
+    game.vehicle.poseParked(24.2, 143.2, 0.02);
     game.vehicle.driven = false;
     game.vehicle.setNight(game.weather.night);
-    // Camera: on the pavement, just behind and left of the coupe, looking up the boulevard. Set
-    // before the cast, because the cast is expressed in the camera's own frame.
-    game.follow.setPose({ x: 22.6, y: 1.72, z: 154.0 }, { x: 28.4, y: 1.05, z: 118.0 }, 54);
-    // The boulevard: a queue in the near lane with the brakes on, a moving column beyond it.
-    castCars(game, cameraFrame(game), [
-      // Near lane drives away from the lens (rear and brake lamps toward it); the far lane is
-      // oncoming, so its headlights face the camera.
-      [11, -2.5, 'away', 1], [15, 2.5, 'towards', 0],
-      [19, -2.5, 'away', 1], [24, 2.5, 'towards', 0],
-      [27, -2.5, 'away', 0], [33, 2.5, 'towards', 0],
-      [36, -2.5, 'away', 0], [42, 2.5, 'towards', 0],
-      [46, -2.5, 'away', 0], [53, 2.5, 'towards', 0],
-    ]);
-    castPeople(game, cameraFrame(game), { near: 6, far: 48, count: 14, left: -8.2, right: 8.2 });
+    // Camera: on the pavement, just behind and above the coupe, looking down the boulevard with
+    // the hero in the lower third. It sits high and tilts ~10 degrees down, because a camera at
+    // eye height looking level puts the road edge-on and every contact shadow in the frame becomes
+    // a line two pixels thick. Set before the cast, because the cast and the kerb are both read
+    // off it.
+    game.follow.setPose({ x: 21.4, y: 3.25, z: 158.5 }, { x: 28.1, y: 1.05, z: 140.0 }, 52);
+    coverCast(game, BOULEVARD);
     game.hud.setPrompt('<b>E</b>&nbsp;&nbsp;ENTER THE COUPE');
   }
 

@@ -160,6 +160,7 @@ export default class Sky {
         blending: THREE.AdditiveBlending,
       }),
     );
+    this.sunSprite.name = 'sun-glow';
     this.sunSprite.scale.setScalar(190);
     this.sunSprite.renderOrder = -9;
     scene.add(this.sunSprite);
@@ -172,17 +173,42 @@ export default class Sky {
       new THREE.MeshBasicMaterial({ color: 0xfff2d2, toneMapped: false, fog: false }),
     );
     this.sunDisc.renderOrder = -9;
+    this.sunDisc.name = 'sun-disc';
     scene.add(this.sunDisc);
 
+    // The haze band: a wide, thin ribbon hanging just under the disc, additive and warm. It is a
+    // real mesh rather than part of the dome shader because it has to sit *in front of* the disc
+    // and be seen through the roofline — a band computed inside the dome is behind everything.
+    this.hazeBand = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({
+        map: assets.glow(),
+        color: 0xffb066,
+        transparent: true,
+        opacity: 0.5,
+        depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+        fog: false,
+      }),
+    );
+    this.hazeBand.name = 'haze-band';
+    this.hazeBand.renderOrder = -9;
+    this.hazeBand.frustumCulled = false;
+    scene.add(this.hazeBand);
+
+    // The one shadow-casting light. Warm, low, and aimed from the sun's own bearing: the rim on
+    // the hero and the shadow on the road are the same sun, so they can never disagree.
     this.sun = new THREE.DirectionalLight(0xffb070, 2.2);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     this.sun.shadow.camera.near = 1;
-    this.sun.shadow.camera.far = 300;
-    this.sun.shadow.camera.left = -38;
-    this.sun.shadow.camera.right = 38;
-    this.sun.shadow.camera.top = 38;
-    this.sun.shadow.camera.bottom = -38;
+    this.sun.shadow.camera.far = 260;
+    this.sun.shadow.camera.left = -42;
+    this.sun.shadow.camera.right = 42;
+    this.sun.shadow.camera.top = 42;
+    this.sun.shadow.camera.bottom = -42;
     this.sun.shadow.camera.updateProjectionMatrix();
     this.sun.shadow.bias = -0.00022;
     this.sun.shadow.normalBias = 0.05;
@@ -190,23 +216,29 @@ export default class Sky {
     scene.add(this.sun);
     scene.add(this.sun.target);
 
-    // A fill from the opposite side, cool and weak: this is the rim that keeps the hero's shaded
-    // flank from going to flat black.
-    this.rim = new THREE.DirectionalLight(0xffe2b8, 0.5);
-    this.rim.position.set(80, 26, -150);
+    // The rim: a warm key from the sun's azimuth, deliberately *offset low and to one side* of the
+    // shadow light. It throws the highlight along the hero's shoulder and the roof edge that the
+    // flat sun+hemi pair alone cannot, and it is the light that makes a paint surface read as
+    // curved. It casts no shadow — two shadow casters in one frame is two suns.
+    this.rim = new THREE.DirectionalLight(0xffd9a8, 1.35);
     this.rim.castShadow = false;
     scene.add(this.rim);
     this.rim.target.position.set(0, 1, 0);
     scene.add(this.rim.target);
 
-    this.hemi = new THREE.HemisphereLight(0xffd6b0, 0x5c4234, 0.62);
+    // Hemisphere fill: warm sky overhead, warm bounce from the sand and the pavement underfoot.
+    // This is the light that keeps the shaded side of every wall from going to a flat black hole.
+    this.hemi = new THREE.HemisphereLight(0xffd6b0, 0x6b4a38, 2.4);
     scene.add(this.hemi);
 
-    this.fill = new THREE.DirectionalLight(0x7794c6, 0.22);
+    // A cool counter-fill from the opposite bearing, so shadow sides read blue rather than black,
+    // and the warm/cool split gives the frame its depth. Weak: it must never compete with the sun.
+    this.fill = new THREE.DirectionalLight(0x7d9acb, 0.42);
     this.fill.position.set(120, 80, 150);
+    this.fill.castShadow = false;
     scene.add(this.fill);
 
-    this.sunDir = new THREE.Vector3(-0.8, 0.2, 0.3).normalize();
+    this.sunDir = new THREE.Vector3(-0.12, 0.235, -0.96).normalize();
     // The moon sits over the north-east shoulder of the boulevard, high enough to clear every
     // rooftop and clear of the hero — a night frame with no subject in the sky reads as a bug.
     this.moonDir = new THREE.Vector3(0.44, 0.26, -0.86).normalize();
@@ -352,6 +384,10 @@ export default class Sky {
     this.hemi.intensity = palette.hemiIntensity;
     this.fill.color.set(palette.fill);
     this.fill.intensity = palette.fillIntensity;
+    // The rim is keyed off the sun, not off a fixed bearing: warm and strong at golden hour, cool
+    // and faint after dark, where the streetlamps take over the job.
+    this.rim.color.set(night ? 0x9fb4e0 : 0xffd9a8);
+    this.rim.intensity = night ? 0.42 : 1.35;
 
     // The sun stands over the boulevard's vanishing point, a little left of centre and above the
     // roofline, so the frame has a disc in it and the warm rim on the hero comes from somewhere
@@ -365,6 +401,11 @@ export default class Sky {
     this.sunSprite.visible = true;
     this.sunDisc.visible = !night;
     this.sunDisc.material.color.set(palette.sunDisc);
+    // Haze: the band is brightest at golden hour, when the sun is low and the air is thick; at
+    // night the disc is the moon's cold light and the band drops to a faint silver.
+    this.hazeBand.visible = true;
+    this.hazeBand.material.color.set(night ? 0x8fa8d8 : palette.sunGlow);
+    this.hazeBand.material.opacity = night ? 0.16 : 0.52;
 
     // The stars and the moon only exist after dark, and come up rather than snapping on.
     this.starMaterial.uniforms.uOpacity.value = night ? 0.95 : 0.0;
@@ -373,7 +414,7 @@ export default class Sky {
     this.moonHalo.material.opacity = night ? 0.34 : 0;
   }
 
-  /** Keep the dome, the star field, the moon and the shadow frustum around the player. */
+  /** Keep the dome, the star field, the moon, the disc and its haze on one bearing. */
   follow(target) {
     this.sun.target.position.copy(target);
     this.sun.target.position.y = 0;
@@ -386,11 +427,31 @@ export default class Sky {
     this.moon.position.set(target.x + this.moonDir.x * 700, 0 + this.moonDir.y * 700, target.z + this.moonDir.z * 700);
     this.sunSprite.position.set(target.x, 0, target.z).addScaledVector(this.sunDir, 760);
     this.sunDisc.position.copy(this.sunSprite.position);
-    // The rim light sits opposite the sun, low, so it grazes the hero's far side.
-    this.rim.position.set(target.x - this.sunDir.x * 120, 26, target.z - this.sunDir.z * 120 + 40);
+
+    // The haze band is a flat ribbon squared to the viewer, hung 0.22 rad under the disc and
+    // stretched wide across the sun's bearing: a band of thick air with the sun inside it. Its
+    // `scale.y` is the band's height in the same units the disc's 13 m radius is drawn at.
+    const bandReach = 760;
+    const bandY = this.sunSprite.position.y - 0.18 * bandReach * 0.5;
+    this.hazeBand.position.set(this.sunSprite.position.x, bandY, this.sunSprite.position.z);
+    // Face the camera: a plane whose normal is the flat horizontal of the sun bearing.
+    const bearing = Math.atan2(this.sunDir.x, this.sunDir.z);
+    this.hazeBand.rotation.set(0, bearing + Math.PI, 0);
+    this.hazeBand.scale.set(this.night ? 190 : 250, this.night ? 30 : 52, 1);
+
+    // The rim sits on the sun's azimuth but lower and swung 26 degrees to the side, so it grazes
+    // the hero's far shoulder instead of lighting the face the sun already lights.
+    const swing = 0.46;
+    const rimAz = bearing + swing;
+    const reach = 130;
+    this.rim.position.set(target.x + Math.sin(rimAz) * reach, 18, target.z + Math.cos(rimAz) * reach);
     this.rim.target.position.copy(target);
     this.rim.target.position.y = 1;
     this.rim.target.updateMatrixWorld();
+    // The cool counter-fill mirrors the same azimuth on the far side, high and weak.
+    this.fill.position.set(target.x - Math.sin(bearing) * 120 + 40, 96, target.z - Math.cos(bearing) * 120);
+    this.fill.target.position.copy(target);
+    this.fill.target.updateMatrixWorld();
   }
 
   update(dt, target) {

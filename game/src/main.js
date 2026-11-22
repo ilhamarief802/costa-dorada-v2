@@ -52,10 +52,14 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPrefere
 renderer.setPixelRatio(1);
 renderer.setSize(1280, 720, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+// ACES compresses the top of the range, which is what lets a sun disc sit next to a shaded awning
+// without either clipping; exposure then decides the time of day, and the weather module owns it.
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.02;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFShadowMap;
+// PCFSoft over a 2048 map: the soft variant widens the kernel, which is what turns the stair-step
+// on a car's edge into a penumbra without paying for a bigger map.
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.autoClear = true;
 
 const scene = new THREE.Scene();
@@ -104,12 +108,17 @@ const pedestrians = new Pedestrians(scene, plan, lanes, assets, blobs, collision
 const player = new Player(scene, plan, rng.fork('player'), collision);
 player.events = events;
 const vehicle = new Vehicle(scene, plan, assets, collision);
+// The two bodies with a scene node of their own get a real plane parented under them, carrying
+// the radial-gradient canvas texture: it inherits the body's heading and height, so a parked car
+// on a slope still has its shadow lying on the road.
+blobs.attachPlane(vehicle.root, { width: 4.4, depth: 7.0, y: 0.09, strength: 0.95 });
+blobs.attachPlane(player.root, { width: 1.7, depth: 2.3, y: 0.09, strength: 0.9 });
 const police = new Police({ scene, plan, lanes, assets, collision, blobs, combat, pedestrians, traffic });
 police.events = events;
 const missions = new Missions({ scene, plan, assets, police, pedestrians, combat, events });
 const activities = new Activities({ scene, plan, lanes, assets, traffic, blobs, events });
 const pickups = new Pickups({ scene, plan, blobs, assets });
-const weather = new Weather({ scene, renderer, sky, water, buildings: cityBuildings, props, landmarks, traffic, vehicle });
+const weather = new Weather({ scene, renderer, sky, water, buildings: cityBuildings, props, landmarks, traffic, vehicle, roads });
 const hud = new Hud(plan);
 const menus = new Menus(seed);
 const follow = new FollowCamera(camera, collision);
@@ -183,23 +192,28 @@ function blobsPlace(target, cityPlan) {
   for (const car of cityPlan.parked) target.claim(car.x, cityPlan.groundHeight(car.x, car.z) + 0.02, car.z, 4.4, 0.34);
 }
 
-// Two slots reserverd for the bodies the player actually is: the hero coupe or a stolen car, and
-// the player on foot. Written every frame from the live pose.
+// Two slots reserved for the bodies the player actually is: the hero coupe or a stolen car, and
+// the player on foot. Written every frame from the live pose. The hero's shadow is an ellipse
+// turned to its heading and stretched along the four metres of its own body, plus a darker core
+// under the tyres, exactly the way traffic cast its own.
 const heroBlob = blobs.claim(0, -400, 0, 0.0001);
+const heroCore = blobs.claim(0, -400, 0, 0.0001);
 const footBlob = blobs.claim(0, -400, 0, 0.0001);
 
 function updateActorBlobs() {
-  if (game.driving) {
-    const actor = game.stolen ?? vehicle;
-    blobs.write(heroBlob, actor.position.x, actor.position.y + 0.035, actor.position.z, 4.6, 0.42);
+  // The hero coupe and the player each carry their own shadow plane under their root, so their
+  // shadow needs no code here: it follows the body. Only a *stolen* traffic car, which has no
+  // root of its own and is drawn through the crowd's instanced mesh, is written by hand.
+  if (game.driving && game.stolen) {
+    const actor = game.stolen;
+    const heading = actor.heading ?? 0;
+    blobs.write(heroBlob, actor.position.x, actor.position.y + 0.07, actor.position.z, 4.6, 0.92, heading, 1.34);
+    blobs.write(heroCore, actor.position.x, actor.position.y + 0.075, actor.position.z, 2.7, 1, heading, 1.24);
   } else {
     blobs.hide(heroBlob);
+    blobs.hide(heroCore);
   }
-  if (!player.hidden) {
-    blobs.write(footBlob, player.position.x, player.position.y + 0.02, player.position.z, 1.35, 0.3);
-  } else {
-    blobs.hide(footBlob);
-  }
+  if (player.hidden) blobs.hide(footBlob);
   blobs.commit();
 }
 

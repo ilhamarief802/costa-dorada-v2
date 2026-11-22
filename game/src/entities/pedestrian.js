@@ -731,7 +731,11 @@ export default class Pedestrians {
       }
 
       if (this.blobs) {
-        this.blobs.write(person.blob, x, baseY + 0.02, z, (running ? 1.5 : 1.28) * scale * girth, 0.3);
+        // A person is taller than wide, so the ellipse is turned to the shoulders and slightly
+        // stretched along the way they face. Lifted clear of the pavement pad/kerb, which is drawn
+        // at 17-30 cm, so the quad is above the surface it is shadowing rather than inside it.
+        const size = (running ? 1.5 : 1.3) * scale * girth;
+        this.blobs.write(person.blob, x, baseY + 0.075, z, size, 0.7, person.heading, 1.24);
       }
     }
 

@@ -30,6 +30,7 @@ export default class Buildings {
     this.buildBalconies();
     this.buildRoofPlant();
     this.buildSigns();
+    this.buildBladeSigns();
     this.setNight(false);
   }
 
@@ -354,10 +355,13 @@ export default class Buildings {
     this.windowFrames.receiveShadow = true;
     this.windowFrames.frustumCulled = false;
 
-    // Sill: a shallow ledge under each opening, catching the low sun.
-    const sillGeometry = new THREE.BoxGeometry(1, 1, 1);
+    // Sill: a shallow ledge under each window, catching the low sun. One quad rather than a box:
+    // nine thousand window boxes is a hundred and ten thousand triangles for a ledge whose top and
+    // underside can never be seen from a camera at 3 m. The ledge is the plane plus the frame's own
+    // lip below it.
+    const sillGeometry = new THREE.PlaneGeometry(1, 1);
     this.windowSills = new THREE.InstancedMesh(sillGeometry, frameMaterial, Math.max(1, this.windowDescriptors.length));
-    this.windowSills.castShadow = true;
+    this.windowSills.castShadow = false;
     this.windowSills.receiveShadow = true;
     this.windowSills.frustumCulled = false;
 
@@ -380,10 +384,12 @@ export default class Buildings {
       this.windowFrames.setMatrixAt(index, dummy.matrix);
       frameMaterial.color.set(0xffffff);
 
-      // Sill: a 20 cm ledge proud of the wall.
+      // Sill: a 20 cm ledge proud of the wall, lying flat under the opening and catching the sun.
+      // A quad laid horizontal (a quarter turn about X) and then yawed onto the facade (Y first in
+      // YXZ order), so the ledge's long axis runs along the wall and its depth juts out.
       dummy.position.set(win.x + nx * 0.05, win.y - win.h / 2 - 0.05, win.z + nz * 0.05);
-      dummy.rotation.set(0, win.ry, 0);
-      dummy.scale.set(win.w + 0.24, 0.09, 0.24);
+      dummy.rotation.set(-Math.PI / 2, win.ry, 0, 'YXZ');
+      dummy.scale.set(win.w + 0.24, 0.24, 1);
       dummy.updateMatrix();
       this.windowSills.setMatrixAt(index, dummy.matrix);
     });
@@ -548,6 +554,80 @@ export default class Buildings {
     }
   }
 
+  /**
+   * Neon blade signs: the vertical shop sign that hangs off a facade at right angles to it, its
+   * face square to the street so a driver reads it side-on. One per a handful of lots, on the
+   * ground-to-fourth floor band. The blade is a thin box so it has a lit edge as well as a lit
+   * face, and it is drawn twice: a standard tube for the unlit frame by day, and a bright emissive
+   * face after dark, when the sign is the thing that says "this street is open".
+   */
+  buildBladeSigns() {
+    const blades = [];
+    const glow = [];
+    const rng = this.plan.rng.fork('blade-signs');
+    const words = ['HOTEL', 'BAR', 'CAFE', 'MARISOL', 'REEF', 'SOL', 'PLAYA', 'NORTE', 'VELA'];
+    for (const lot of this.plan.lots) {
+      if (lot.height < 7 || lot.style === 'plaza' || lot.style === 'warehouse') continue;
+      if (!rng.chance(0.42)) continue;
+      // Facing the street on one of the two long faces, hung just proud of the wall.
+      const face = rng.pick(['south', 'east']);
+      const y = CITY.padHeight + Math.min(7.4, 3.4 + lot.height * 0.14);
+      const word = rng.pick(words);
+      if (face === 'south') {
+        blades.push({ x: lot.x - lot.w * 0.32, y, z: lot.z + lot.d / 2 + 0.75, ry: 0, word, tall: true });
+      } else {
+        blades.push({ x: lot.x + lot.w / 2 + 0.75, y, z: lot.z + lot.d * 0.3, ry: Math.PI / 2, word, tall: true });
+      }
+    }
+    if (!blades.length) return;
+
+    // Frame: a slim dark box the panel is mounted in, so the sign is a fitting, not a decal.
+    const frameGeometry = new THREE.BoxGeometry(1.05, 2.5, 0.16);
+    const frameMaterial = new THREE.MeshStandardMaterial({ color: 0x1b1a1e, roughness: 0.7, metalness: 0.4 });
+    const frames = makeInstances(frameGeometry, frameMaterial, blades.map((b) => ({ x: b.x, y: b.y, z: b.z, ry: b.ry })), { castShadow: true, receiveShadow: true });
+    this.addNamed('blade-frames', frames, true);
+
+    // Face: one plane per word, all of them merging into one mesh per word so the nine possible
+    // blades cost nine draws and not one per building.
+    const byWord = new Map();
+    for (const blade of blades) {
+      if (!byWord.has(blade.word)) byWord.set(blade.word, []);
+      const panel = new THREE.PlaneGeometry(0.92, 2.35);
+      panel.rotateZ(-Math.PI / 2);
+      panel.rotateY(blade.ry + Math.PI / 2);
+      panel.translate(blade.x, blade.y, blade.z);
+      byWord.get(blade.word).push({ geometry: panel });
+      glow.push(blade.x, blade.y, blade.z);
+    }
+    this.bladeMaterials = [];
+    for (const [word, parts] of byWord) {
+      const texture = this.assets.sign(word, { background: '#120c14', ink: '#ffe6b8', border: '#ff6a2e', font: 700 });
+      const material = new THREE.MeshBasicMaterial({ map: texture, toneMapped: false, side: THREE.DoubleSide, transparent: true });
+      const mesh = new THREE.Mesh(mergeGeometries(parts), material);
+      mesh.renderOrder = 2;
+      this.bladeMaterials.push(material);
+      this.addNamed('blade-signs', mesh, false);
+    }
+
+    // The light the blade throws on its own wall and on the pavement below it.
+    if (glow.length) {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(glow, 3));
+      this.bladeGlowMaterial = new THREE.PointsMaterial({
+        map: this.assets.glow(),
+        color: 0xff8a4a,
+        size: 5.4,
+        sizeAttenuation: true,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+      });
+      this.group.add(new THREE.Points(geometry, this.bladeGlowMaterial));
+    }
+  }
+
   setNight(night) {
     const color = new THREE.Color();
     this.windowDescriptors.forEach((win, index) => {
@@ -578,5 +658,12 @@ export default class Buildings {
     for (const material of this.bannerMaterials) {
       material.color.set(night ? 0xffffff : 0xbdb0a2);
     }
+    // Blade signs: by day a dead panel of painted steel, after dark the neon in the street.
+    if (this.bladeMaterials) {
+      for (const material of this.bladeMaterials) {
+        material.color.set(night ? 0xffffff : 0x9c9086);
+      }
+    }
+    if (this.bladeGlowMaterial) this.bladeGlowMaterial.opacity = night ? 0.85 : 0.0;
   }
 }

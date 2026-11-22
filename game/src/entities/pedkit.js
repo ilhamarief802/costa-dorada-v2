@@ -133,15 +133,15 @@ function torsoGeometry(variant) {
 
 function headGeometry(variant) {
   const long = variant === 'coat' || variant === 'slim';
-  const skull = new THREE.SphereGeometry(0.132, 12, 10);
+  const skull = new THREE.SphereGeometry(0.132, 9, 7);
   skull.scale(0.92, 1.12, long ? 1.04 : 0.98);
-  const jaw = new THREE.SphereGeometry(0.082, 8, 7);
+  const jaw = new THREE.SphereGeometry(0.082, 6, 5);
   jaw.scale(1.05, 0.82, 1.1);
   jaw.translate(0, -0.098, 0.028);
   const nose = new THREE.ConeGeometry(0.026, 0.062, 5);
   nose.rotateX(Math.PI / 2);
   nose.translate(0, -0.024, 0.126);
-  const ear = new THREE.SphereGeometry(0.028, 6, 5);
+  const ear = new THREE.BoxGeometry(0.03, 0.055, 0.03);
   ear.scale(0.5, 1.15, 0.8);
   const left = ear.clone();
   left.translate(-0.116, 0.005, -0.012);
@@ -158,7 +158,7 @@ function headGeometry(variant) {
 
 /** Hair: a cap with a fringe and a couple of locks, so profiles are not bald spheres. */
 function hairGeometry(variant) {
-  const cap = new THREE.SphereGeometry(0.139, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62);
+  const cap = new THREE.SphereGeometry(0.139, 9, 6, 0, Math.PI * 2, 0, Math.PI * 0.62);
   cap.scale(0.96, 1.05, 1.03);
   cap.translate(0, 0.012, -0.008);
   const slice = [
@@ -181,7 +181,7 @@ function hairGeometry(variant) {
 function upperArmGeometry() {
   const sleeve = taper(0.055, 0.042, 0.28);
   sleeve.translate(0, 0, 0);
-  const cuff = new THREE.CylinderGeometry(0.045, 0.045, 0.028, 8);
+  const cuff = new THREE.CylinderGeometry(0.045, 0.045, 0.028, 6, 1, true);
   cuff.translate(0, -0.284, 0);
   return mergeGeometries([
     { geometry: sleeve, color: 0xffffff },
@@ -191,10 +191,10 @@ function upperArmGeometry() {
 
 function foreArmGeometry() {
   const skin = taper(0.038, 0.03, 0.26);
-  const hand = new THREE.SphereGeometry(0.036, 7, 6);
+  const hand = new THREE.BoxGeometry(0.062, 0.086, 0.05);
   hand.scale(1, 0.86, 1.16);
   hand.translate(0, -0.272, 0.006);
-  const thumb = new THREE.SphereGeometry(0.016, 5, 4);
+  const thumb = new THREE.BoxGeometry(0.026, 0.036, 0.026);
   thumb.translate(0.026, -0.256, 0.03);
   return mergeGeometries([
     { geometry: skin, color: 0xffffff },
@@ -232,18 +232,18 @@ function shinGeometry() {
 
 function hatGeometry(kind) {
   if (kind === 'cap') {
-    const crown = new THREE.SphereGeometry(0.136, 10, 7, 0, Math.PI * 2, 0, Math.PI * 0.52);
+    const crown = new THREE.SphereGeometry(0.136, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.52);
     crown.scale(1.02, 0.92, 1.04);
     crown.translate(0, 0.02, 0);
     const brim = new THREE.BoxGeometry(0.17, 0.014, 0.1);
     brim.translate(0, 0.018, 0.128);
     return mergeGeometries([{ geometry: crown, color: 0xffffff }, { geometry: brim, color: 0xf0f0f0 }]);
   }
-  const brim = new THREE.CylinderGeometry(0.25, 0.25, 0.016, 14);
+  const brim = new THREE.CylinderGeometry(0.25, 0.25, 0.016, 10);
   brim.translate(0, 0.02, 0);
-  const crown = new THREE.CylinderGeometry(0.115, 0.132, 0.11, 12);
+  const crown = new THREE.CylinderGeometry(0.115, 0.132, 0.11, 9);
   crown.translate(0, 0.082, 0);
-  const band = new THREE.CylinderGeometry(0.134, 0.134, 0.026, 12);
+  const band = new THREE.CylinderGeometry(0.134, 0.134, 0.026, 9, 1, true);
   band.translate(0, 0.038, 0);
   return mergeGeometries([
     { geometry: brim, color: 0xffffff },
